@@ -22,7 +22,9 @@ document.addEventListener('DOMContentLoaded', () => {
         const clickY = (e.clientY - rect.top) * scaleY;
         
         // Proximity detection boxes
-        const textDist = Math.hypot(clickX - state.text.x, clickY - state.text.y);
+        const textX = state.text.x + (state.text.shiftX || 0);
+        const textY = state.text.y + (state.text.shiftY || 0);
+        const textDist = Math.hypot(clickX - textX, clickY - textY);
         const fgX = canvasElement.width / 2 + state.visuals.fgShiftX;
         const fgY = canvasElement.height / 2 + state.visuals.fgShiftY;
         const fgDist = Math.hypot(clickX - fgX, clickY - fgY);
@@ -37,6 +39,10 @@ document.addEventListener('DOMContentLoaded', () => {
         if (state.text.enabled && textDist < 120) {
             isDraggingText = true;
             canvasElement.style.cursor = 'grabbing';
+            startDragX = clickX;
+            startDragY = clickY;
+            startShiftX = state.text.shiftX || 0;
+            startShiftY = state.text.shiftY || 0;
         } else if ((state.visuals.fgImage || state.visuals.fgVideo) && fgDist < 220) {
             isDraggingFG = true;
             canvasElement.style.cursor = 'grabbing';
@@ -71,7 +77,9 @@ document.addEventListener('DOMContentLoaded', () => {
         const clickY = (e.clientY - rect.top) * scaleY;
         
         if (!isDraggingText && !isDraggingBG && !isDraggingFG && !isDraggingWave) {
-            const textDist = Math.hypot(clickX - state.text.x, clickY - state.text.y);
+            const textX = state.text.x + (state.text.shiftX || 0);
+            const textY = state.text.y + (state.text.shiftY || 0);
+            const textDist = Math.hypot(clickX - textX, clickY - textY);
             const fgX = canvasElement.width / 2 + state.visuals.fgShiftX;
             const fgY = canvasElement.height / 2 + state.visuals.fgShiftY;
             const fgDist = Math.hypot(clickX - fgX, clickY - fgY);
@@ -98,10 +106,20 @@ document.addEventListener('DOMContentLoaded', () => {
         }
         
         if (isDraggingText) {
-            state.text.x = Math.max(50, Math.min(canvasElement.width - 50, clickX));
-            state.text.y = Math.max(50, Math.min(canvasElement.height - 50, clickY));
-            elements.textPosition.value = 'custom';
-            state.text.position = 'custom';
+            const dx = clickX - startDragX;
+            const dy = clickY - startDragY;
+            
+            state.text.shiftX = Math.max(-800, Math.min(800, startShiftX + dx));
+            state.text.shiftY = Math.max(-800, Math.min(800, startShiftY + dy));
+            
+            if (elements.textShiftX) {
+                elements.textShiftX.value = state.text.shiftX;
+                elements.textShiftXVal.innerText = `${state.text.shiftX}px`;
+            }
+            if (elements.textShiftY) {
+                elements.textShiftY.value = state.text.shiftY;
+                elements.textShiftYVal.innerText = `${state.text.shiftY}px`;
+            }
         } else if (isDraggingFG) {
             const dx = clickX - startDragX;
             const dy = clickY - startDragY;

@@ -139,14 +139,14 @@
                                             <span>Shift X</span>
                                             <span class="val-display" id="bg-shiftx-val">0px</span>
                                         </label>
-                                        <input type="range" id="bg-shiftx" min="-600" max="600" step="10" value="0" class="slider-input">
+                                        <input type="range" id="bg-shiftx" min="-600" max="600" step="1" value="0" class="slider-input">
                                     </div>
                                     <div class="setting-group" style="flex: 1; margin-bottom: 0;">
                                         <label class="setting-label-row">
                                             <span>Shift Y</span>
                                             <span class="val-display" id="bg-shifty-val">0px</span>
                                         </label>
-                                        <input type="range" id="bg-shifty" min="-600" max="600" step="10" value="0" class="slider-input">
+                                        <input type="range" id="bg-shifty" min="-600" max="600" step="1" value="0" class="slider-input">
                                     </div>
                                 </div>
                             </div>
@@ -195,14 +195,14 @@
                                             <span>Shift X</span>
                                             <span class="val-display" id="fg-shiftx-val">0px</span>
                                         </label>
-                                        <input type="range" id="fg-shiftx" min="-600" max="600" step="10" value="0" class="slider-input">
+                                        <input type="range" id="fg-shiftx" min="-600" max="600" step="1" value="0" class="slider-input">
                                     </div>
                                     <div class="setting-group" style="flex: 1; margin-bottom: 0;">
                                         <label class="setting-label-row">
                                             <span>Shift Y</span>
                                             <span class="val-display" id="fg-shifty-val">0px</span>
                                         </label>
-                                        <input type="range" id="fg-shifty" min="-600" max="600" step="10" value="0" class="slider-input">
+                                        <input type="range" id="fg-shifty" min="-600" max="600" step="1" value="0" class="slider-input">
                                     </div>
                                 </div>
                             </div>
@@ -429,14 +429,14 @@
                                                 <span>Wave Shift X</span>
                                                 <span class="val-display" id="wave-shiftx-val">0px</span>
                                             </label>
-                                            <input type="range" id="wave-shiftx" min="-800" max="800" step="10" value="0" class="slider-input">
+                                            <input type="range" id="wave-shiftx" min="-800" max="800" step="1" value="0" class="slider-input">
                                         </div>
                                         <div class="setting-group" style="flex: 1; margin-bottom: 0;">
                                             <label class="setting-label-row">
                                                 <span>Wave Shift Y</span>
                                                 <span class="val-display" id="wave-shifty-val">0px</span>
                                             </label>
-                                            <input type="range" id="wave-shifty" min="-800" max="800" step="10" value="0" class="slider-input">
+                                            <input type="range" id="wave-shifty" min="-800" max="800" step="1" value="0" class="slider-input">
                                         </div>
                                     </div>
                                 </div>
@@ -551,7 +551,7 @@
                                     <span>Bass Beat Reaction</span>
                                 </div>
                                 <label class="toggle-switch">
-                                    <input type="checkbox" id="fx-beat-pulse" checked>
+                                    <input type="checkbox" id="fx-beat-pulse">
                                     <span class="slider"></span>
                                 </label>
                             </div>
@@ -584,7 +584,7 @@
                                     <span>Ambient Particle Field</span>
                                 </div>
                                 <label class="toggle-switch">
-                                    <input type="checkbox" id="fx-particles" checked>
+                                    <input type="checkbox" id="fx-particles">
                                     <span class="slider"></span>
                                 </label>
                             </div>
@@ -630,7 +630,7 @@
                                     <span>Cinematic Vignette</span>
                                 </div>
                                 <label class="toggle-switch">
-                                    <input type="checkbox" id="fx-vignette" checked>
+                                    <input type="checkbox" id="fx-vignette">
                                     <span class="slider"></span>
                                 </label>
                             </div>
@@ -765,7 +765,7 @@
                                     <span>Cinematic Camera Drift</span>
                                 </div>
                                 <label class="toggle-switch">
-                                    <input type="checkbox" id="fx-camera-drift" checked>
+                                    <input type="checkbox" id="fx-camera-drift">
                                     <span class="slider"></span>
                                 </label>
                             </div>
@@ -866,14 +866,52 @@
                                 </div>
                             </div>
 
+                            <!-- Text Bloom/Glow Options -->
+                            <div class="setting-group" style="margin-top: 1rem; border-top: 1px solid rgba(255,255,255,0.06); padding-top: 1rem;">
+                                <div class="fx-header" style="margin-bottom: 0.5rem; display: flex; justify-content: space-between; align-items: center;">
+                                    <span style="font-size: 0.8rem; font-weight: 600; color: #a5b4fc; text-transform: uppercase;">Text Bloom / Glow</span>
+                                    <label class="toggle-switch">
+                                        <input type="checkbox" id="text-glow-enabled">
+                                        <span class="slider"></span>
+                                    </label>
+                                </div>
+                                <p class="fx-desc" style="margin-bottom: 0.75rem;">Apply a volumetric neon bloom directly to the text overlay.</p>
+                                <div id="text-glow-intensity-controls" style="display: none; flex-direction: column; gap: 0.75rem;">
+                                    <label class="setting-label-row">
+                                        <span>Bloom Intensity</span>
+                                        <span class="val-display" id="text-glow-strength-val">1.0x</span>
+                                    </label>
+                                    <input type="range" id="text-glow-strength" min="0.1" max="3.0" step="0.1" value="1.0" class="slider-input">
+                                </div>
+                            </div>
+
                             <div class="setting-group">
                                 <label class="setting-label">Text Position</label>
                                 <select id="text-position" class="select-input">
                                     <option value="center">Perfect Centered</option>
                                     <option value="top">Top Header (Third)</option>
                                     <option value="bottom">Lower Third (Bottom)</option>
-                                    <option value="custom">Drag Custom Placement</option>
                                 </select>
+                            </div>
+
+                            <div class="setting-group" style="margin-top: 1rem;">
+                                <label class="setting-label">Text Position Offset</label>
+                                <div class="setting-group-row">
+                                    <div class="setting-group" style="flex: 1; margin-bottom: 0;">
+                                        <label class="setting-label-row">
+                                            <span>Text Shift X</span>
+                                            <span class="val-display" id="text-shiftx-val">0px</span>
+                                        </label>
+                                        <input type="range" id="text-shiftx" min="-800" max="800" step="1" value="0" class="slider-input">
+                                    </div>
+                                    <div class="setting-group" style="flex: 1; margin-bottom: 0;">
+                                        <label class="setting-label-row">
+                                            <span>Text Shift Y</span>
+                                            <span class="val-display" id="text-shifty-val">0px</span>
+                                        </label>
+                                        <input type="range" id="text-shifty" min="-800" max="800" step="1" value="0" class="slider-input">
+                                    </div>
+                                </div>
                             </div>
                         </div>
                     </div>
@@ -961,7 +999,8 @@
 
     <!-- Glowing Rendering Progress Modal Overlay -->
     <div class="modal-overlay" id="render-modal">
-        <div class="render-modal-card glass-card">
+        <div class="render-modal-card glass-card" style="position: relative;">
+            <button class="modal-close-btn" id="btn-close-modal" style="position: absolute; top: 1rem; right: 1.2rem; background: none; border: none; color: var(--text-muted); font-size: 1.5rem; cursor: pointer; transition: var(--transition-smooth); display: none; line-height: 1;">&times;</button>
             <div class="modal-glowing-ring">
                 <i class="fa-solid fa-circle-notch spinner-ring"></i>
                 <div class="progress-percent" id="render-percent">0%</div>

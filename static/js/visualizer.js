@@ -1006,7 +1006,7 @@ function renderFrame() {
         ctx.restore();
     }
 
-    // --- 6. Draw Typography Text Overlay using manual drag-and-drop coordinates ---
+    // --- 6. Draw Typography Text Overlay ---
     if (state.text.enabled && (state.text.title || state.text.artist)) {
         ctx.save();
         ctx.textAlign = 'center';
@@ -1014,20 +1014,122 @@ function renderFrame() {
         
         const fontName = state.text.family;
         const size = state.text.size;
+        const textX = state.text.x + (state.text.shiftX || 0);
+        const textY = state.text.y + (state.text.shiftY || 0);
         
         if (state.text.title) {
-            ctx.font = `800 ${size}px "${fontName}", sans-serif`;
-            ctx.shadowColor = 'rgba(0, 0, 0, 0.7)';
-            ctx.shadowBlur = 12;
-            ctx.shadowOffsetX = 2;
-            ctx.shadowOffsetY = 2;
-            ctx.fillStyle = state.text.color;
-            ctx.fillText(state.text.title, state.text.x, state.text.y);
+            const fontTitle = `800 ${size}px "${fontName}", sans-serif`;
+            
+            if (state.text.glowEnabled) {
+                const glowColor = state.text.color || '#ffffff';
+                const intensity = state.text.glowStrength !== undefined ? state.text.glowStrength : 1.0;
+                const spread = 35 * intensity;
+                const opacity = 0.85;
+
+                ctx.save();
+                ctx.font = fontTitle;
+                
+                // Additive screen blending for gorgeous exposure
+                if (intensity > 1.2) {
+                    ctx.globalCompositeOperation = 'screen';
+                }
+
+                const stackCount = Math.max(1, Math.min(5, Math.ceil(intensity)));
+                
+                for (let s = 0; s < stackCount; s++) {
+                    // Pass 1: Volumetric Ambient Bloom (Wide and soft)
+                    ctx.fillStyle = state.text.color;
+                    ctx.shadowColor = hexToRgba(glowColor, Math.min(1.0, opacity * 0.22 * intensity));
+                    ctx.shadowBlur = spread * 2.5;
+                    ctx.shadowOffsetX = 0;
+                    ctx.shadowOffsetY = 0;
+                    ctx.fillText(state.text.title, textX, textY);
+                    
+                    // Pass 2: Mid-range Glow Bloom
+                    ctx.shadowColor = hexToRgba(glowColor, Math.min(1.0, opacity * 0.55 * intensity));
+                    ctx.shadowBlur = spread * 1.1;
+                    ctx.fillText(state.text.title, textX, textY);
+                    
+                    // Pass 3: Saturated Inner Core Halo
+                    ctx.shadowColor = hexToRgba(glowColor, Math.min(1.0, opacity * 0.95 * intensity));
+                    ctx.shadowBlur = spread * 0.35;
+                    ctx.fillText(state.text.title, textX, textY);
+                }
+                
+                // Pass 4: Hot Inner Bloom / Main fill
+                ctx.globalCompositeOperation = 'source-over';
+                ctx.shadowColor = 'transparent';
+                ctx.shadowBlur = 0;
+                
+                ctx.fillStyle = state.text.color;
+                ctx.fillText(state.text.title, textX, textY);
+                ctx.restore();
+            } else {
+                ctx.save();
+                ctx.font = fontTitle;
+                ctx.fillStyle = state.text.color;
+                ctx.shadowColor = 'rgba(0, 0, 0, 0.7)';
+                ctx.shadowBlur = 12;
+                ctx.shadowOffsetX = 2;
+                ctx.shadowOffsetY = 2;
+                ctx.fillText(state.text.title, textX, textY);
+                ctx.restore();
+            }
             
             if (state.text.artist) {
-                ctx.font = `500 ${size * 0.55}px "${fontName}", sans-serif`;
-                ctx.fillStyle = 'rgba(230, 230, 230, 0.85)';
-                ctx.fillText(state.text.artist, state.text.x, state.text.y + size + 16);
+                const fontArtist = `500 ${size * 0.55}px "${fontName}", sans-serif`;
+                const artistY = textY + size + 16;
+                const artistColor = 'rgba(230, 230, 230, 0.85)';
+                
+                if (state.text.glowEnabled) {
+                    const glowColor = state.text.color || '#ffffff';
+                    const intensity = state.text.glowStrength !== undefined ? state.text.glowStrength : 1.0;
+                    const spread = 20 * intensity;
+                    const opacity = 0.85;
+
+                    ctx.save();
+                    ctx.font = fontArtist;
+                    
+                    if (intensity > 1.2) {
+                        ctx.globalCompositeOperation = 'screen';
+                    }
+
+                    const stackCount = Math.max(1, Math.min(5, Math.ceil(intensity)));
+                    
+                    for (let s = 0; s < stackCount; s++) {
+                        ctx.fillStyle = artistColor;
+                        ctx.shadowColor = hexToRgba(glowColor, Math.min(1.0, opacity * 0.22 * intensity));
+                        ctx.shadowBlur = spread * 2.5;
+                        ctx.shadowOffsetX = 0;
+                        ctx.shadowOffsetY = 0;
+                        ctx.fillText(state.text.artist, textX, artistY);
+                        
+                        ctx.shadowColor = hexToRgba(glowColor, Math.min(1.0, opacity * 0.55 * intensity));
+                        ctx.shadowBlur = spread * 1.1;
+                        ctx.fillText(state.text.artist, textX, artistY);
+                        
+                        ctx.shadowColor = hexToRgba(glowColor, Math.min(1.0, opacity * 0.95 * intensity));
+                        ctx.shadowBlur = spread * 0.35;
+                        ctx.fillText(state.text.artist, textX, artistY);
+                    }
+                    
+                    ctx.globalCompositeOperation = 'source-over';
+                    ctx.shadowColor = 'transparent';
+                    ctx.shadowBlur = 0;
+                    ctx.fillStyle = artistColor;
+                    ctx.fillText(state.text.artist, textX, artistY);
+                    ctx.restore();
+                } else {
+                    ctx.save();
+                    ctx.font = fontArtist;
+                    ctx.fillStyle = artistColor;
+                    ctx.shadowColor = 'rgba(0, 0, 0, 0.7)';
+                    ctx.shadowBlur = 12;
+                    ctx.shadowOffsetX = 2;
+                    ctx.shadowOffsetY = 2;
+                    ctx.fillText(state.text.artist, textX, artistY);
+                    ctx.restore();
+                }
             }
         }
         ctx.restore();

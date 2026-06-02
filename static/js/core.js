@@ -69,15 +69,15 @@ const state = {
         waveFolderAdvancedOpen: false,
     },
     fx: {
-        beatPulse: true,
+        beatPulse: false,
         beatPulseIntensity: 1.0,
         beatPulseDirection: 'omni', // omni, horizontal, vertical, zoom
-        particles: true,
+        particles: false,
         particleCount: 60,
         particleStyle: 'stardust', // stardust, embers, rain
         particleSize: 3,
         particleSpeed: 1.5,
-        vignette: true,
+        vignette: false,
         vignetteStrength: 0.70,
         vignetteColor: '#000000',
         vignetteRadius: 0.6,
@@ -96,7 +96,7 @@ const state = {
         crtRollSpeed: 0.0,
         crtGrain: 0.05,
         colorGrading: 'none',
-        cameraDrift: true,
+        cameraDrift: false,
         cameraDriftSpeed: 1.0,
         cameraDriftAmplitude: 60.0,
         cameraDriftZoom: 1.10
@@ -110,7 +110,11 @@ const state = {
         color: '#ffffff',
         position: 'center',
         x: 960,
-        y: 540
+        y: 540,
+        shiftX: 0,
+        shiftY: 0,
+        glowEnabled: false,
+        glowStrength: 1.0
     },
     export: {
         method: 'client', // client or server
@@ -308,6 +312,14 @@ document.addEventListener('DOMContentLoaded', () => {
     elements.fontColor = document.getElementById('font-color');
     elements.fontsizeVal = document.getElementById('fontsize-val');
     elements.textPosition = document.getElementById('text-position');
+    elements.textShiftX = document.getElementById('text-shiftx');
+    elements.textShiftXVal = document.getElementById('text-shiftx-val');
+    elements.textShiftY = document.getElementById('text-shifty');
+    elements.textShiftYVal = document.getElementById('text-shifty-val');
+    elements.textGlowEnabled = document.getElementById('text-glow-enabled');
+    elements.textGlowStrength = document.getElementById('text-glow-strength');
+    elements.textGlowStrengthVal = document.getElementById('text-glow-strength-val');
+    elements.textGlowIntensityControls = document.getElementById('text-glow-intensity-controls');
     
     elements.canvasContainer = document.getElementById('canvas-container');
     elements.visualizerCanvas = document.getElementById('visualizer-canvas');
@@ -336,6 +348,7 @@ document.addEventListener('DOMContentLoaded', () => {
     elements.renderDetailsLog = document.getElementById('render-details-log');
     elements.btnCancelRender = document.getElementById('btn-cancel-render');
     elements.btnDownloadExport = document.getElementById('btn-download-export');
+    elements.btnCloseModal = document.getElementById('btn-close-modal');
 
     // Get context
     ctx = elements.visualizerCanvas.getContext('2d');
@@ -979,6 +992,41 @@ document.addEventListener('DOMContentLoaded', () => {
         }
         triggerRedraw();
     });
+
+    elements.textShiftX.addEventListener('input', (e) => {
+        const val = parseInt(e.target.value);
+        state.text.shiftX = val;
+        elements.textShiftXVal.innerText = `${val}px`;
+        triggerRedraw();
+    });
+
+    elements.textShiftY.addEventListener('input', (e) => {
+        const val = parseInt(e.target.value);
+        state.text.shiftY = val;
+        elements.textShiftYVal.innerText = `${val}px`;
+        triggerRedraw();
+    });
+
+    if (elements.textGlowEnabled) {
+        elements.textGlowEnabled.addEventListener('change', (e) => {
+            state.text.glowEnabled = e.target.checked;
+            if (elements.textGlowIntensityControls) {
+                elements.textGlowIntensityControls.style.display = e.target.checked ? 'flex' : 'none';
+            }
+            triggerRedraw();
+        });
+    }
+
+    if (elements.textGlowStrength) {
+        elements.textGlowStrength.addEventListener('input', (e) => {
+            const val = parseFloat(e.target.value);
+            state.text.glowStrength = val;
+            if (elements.textGlowStrengthVal) {
+                elements.textGlowStrengthVal.innerText = `${val.toFixed(1)}x`;
+            }
+            triggerRedraw();
+        });
+    }
 
     // === Startup Initialization & Persistence Sync ===
     initPresets();
@@ -1652,6 +1700,26 @@ function syncDOMToState() {
     }
     if (elements.fontColor) elements.fontColor.value = state.text.color;
     if (elements.textPosition) elements.textPosition.value = state.text.position;
+    if (elements.textShiftX) {
+        elements.textShiftX.value = state.text.shiftX || 0;
+        elements.textShiftXVal.innerText = `${state.text.shiftX || 0}px`;
+    }
+    if (elements.textShiftY) {
+        elements.textShiftY.value = state.text.shiftY || 0;
+        elements.textShiftYVal.innerText = `${state.text.shiftY || 0}px`;
+    }
+    if (elements.textGlowEnabled) {
+        elements.textGlowEnabled.checked = state.text.glowEnabled || false;
+        if (elements.textGlowIntensityControls) {
+            elements.textGlowIntensityControls.style.display = state.text.glowEnabled ? 'flex' : 'none';
+        }
+    }
+    if (elements.textGlowStrength) {
+        elements.textGlowStrength.value = state.text.glowStrength || 1.0;
+        if (elements.textGlowStrengthVal) {
+            elements.textGlowStrengthVal.innerText = `${(state.text.glowStrength || 1.0).toFixed(1)}x`;
+        }
+    }
 
     // 7. Sync Style Cards and Preset Gradients in UI
     elements.styleCards.forEach(card => {

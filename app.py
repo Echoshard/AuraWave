@@ -118,7 +118,18 @@ def remux_video():
     if file.filename == '':
         return jsonify({'error': 'No selected file'}), 400
         
-    task_id = f"remux_{uuid.uuid4()}.mp4"
+    export_name = request.form.get('export_name', '')
+    if export_name:
+        if export_name.lower().endswith('.mp4'):
+            export_name = export_name[:-4]
+        safe_export_name = secure_filename(export_name)
+    else:
+        safe_export_name = f"remux_{uuid.uuid4()}"
+        
+    if not safe_export_name:
+        safe_export_name = f"remux_{uuid.uuid4()}"
+        
+    task_id = f"{safe_export_name}.mp4"
     webm_filename = f"temp_{uuid.uuid4()}.webm"
     webm_path = os.path.join(app.config['UPLOAD_FOLDER'], webm_filename)
     mp4_path = os.path.join(app.config['EXPORT_FOLDER'], task_id)

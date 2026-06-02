@@ -426,6 +426,14 @@
     filter: drop-shadow(0 0 12px var(--primary-glow));
 }
 
+.spinner-ring.stopped {
+    animation: none;
+}
+
+.modal-close-btn:hover {
+    color: var(--text-primary) !important;
+}
+
 .progress-percent {
     position: absolute;
     font-family: 'Space Grotesk', sans-serif;

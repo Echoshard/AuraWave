@@ -273,7 +273,12 @@ async function runClientSideExport() {
     elements.renderDetailsLog.style.color = '#ef4444'; // Glowing neon red log
     
     elements.btnCancelRender.style.display = 'block';
+    elements.btnCancelRender.innerText = 'Cancel Export';
     elements.btnDownloadExport.style.display = 'none';
+    if (elements.btnCloseModal) elements.btnCloseModal.style.display = 'none';
+    
+    const spinner = elements.renderModal.querySelector('.spinner-ring');
+    if (spinner) spinner.classList.remove('stopped');
     
     const wasSynthActive = state.audio.synthActive;
     const melodyPreset = elements.synthMelody ? elements.synthMelody.value : 'chill';
@@ -453,9 +458,17 @@ async function runClientSideExport() {
         
         if (wasSynthActive) {
             formData.append('audio_upload', wavBlob, 'synth.wav');
+            formData.append('export_name', 'synthetic_dream');
         } else {
             const serverFilename = state.audio.audioUrl.split('/uploads/')[1];
             formData.append('audio_file', serverFilename);
+            
+            let originalName = state.audio.fileName || 'visualizer';
+            const dotIndex = originalName.lastIndexOf('.');
+            if (dotIndex > 0) {
+                originalName = originalName.substring(0, dotIndex);
+            }
+            formData.append('export_name', originalName);
         }
         
         const res = await fetch('/api/remux', {
@@ -493,7 +506,21 @@ async function runClientSideExport() {
                     elements.renderDetailsLog.innerText = 'Rendering completed successfully!';
                     elements.renderDetailsLog.style.color = '#ef4444';
                     
-                    elements.btnCancelRender.style.display = 'none';
+                    const spinner = elements.renderModal.querySelector('.spinner-ring');
+                    if (spinner) spinner.classList.add('stopped');
+                    
+                    if (elements.btnCloseModal) {
+                        elements.btnCloseModal.style.display = 'block';
+                        elements.btnCloseModal.onclick = () => {
+                            elements.renderModal.style.display = 'none';
+                        };
+                    }
+                    
+                    elements.btnCancelRender.innerText = 'Close';
+                    elements.btnCancelRender.style.display = 'block';
+                    elements.btnCancelRender.onclick = () => {
+                        elements.renderModal.style.display = 'none';
+                    };
                     elements.btnDownloadExport.style.display = 'block';
                     
                     elements.btnDownloadExport.onclick = () => {
@@ -512,6 +539,22 @@ async function runClientSideExport() {
                     elements.renderModalSub.innerText = 'An error occurred while compiling the video with FFmpeg.';
                     elements.renderDetailsLog.innerText = `Error: ${statusData.error || 'Unknown background rendering error.'}`;
                     elements.renderDetailsLog.style.color = '#f87171';
+                    
+                    const spinner = elements.renderModal.querySelector('.spinner-ring');
+                    if (spinner) spinner.classList.add('stopped');
+                    
+                    if (elements.btnCloseModal) {
+                        elements.btnCloseModal.style.display = 'block';
+                        elements.btnCloseModal.onclick = () => {
+                            elements.renderModal.style.display = 'none';
+                        };
+                    }
+                    
+                    elements.btnCancelRender.innerText = 'Close';
+                    elements.btnCancelRender.style.display = 'block';
+                    elements.btnCancelRender.onclick = () => {
+                        elements.renderModal.style.display = 'none';
+                    };
                 } else {
                     elements.renderDetailsLog.innerText = statusData.last_log_line || `Transcoding... Running for ${pollTicks * 1.5} seconds...`;
                 }

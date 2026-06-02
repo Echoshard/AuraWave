@@ -30,6 +30,34 @@ const PRESETS = {
             css: 'linear-gradient(135deg, #09090b 0%, #030712 60%, #022c22 100%)',
             colors: ['#09090b', '#030712', '#022c22'],
             waveColor: '#10b981' // emerald-500 default
+        },
+        {
+            id: 'nebula',
+            name: 'Nebula Dream',
+            css: 'linear-gradient(135deg, #08020f 0%, #1c0c3a 50%, #4c0519 100%)',
+            colors: ['#08020f', '#1c0c3a', '#4c0519'],
+            waveColor: '#f472b6' // pink-400 default
+        },
+        {
+            id: 'abyss',
+            name: 'Deep Abyss',
+            css: 'linear-gradient(135deg, #010610 0%, #061727 50%, #032c30 100%)',
+            colors: ['#010610', '#061727', '#032c30'],
+            waveColor: '#2dd4bf' // teal-400 default
+        },
+        {
+            id: 'solstice',
+            name: 'Solar Flare',
+            css: 'linear-gradient(135deg, #090101 0%, #210505 50%, #450a0a 100%)',
+            colors: ['#090101', '#210505', '#450a0a'],
+            waveColor: '#f97316' // orange-500 default
+        },
+        {
+            id: 'cyberpunk',
+            name: 'Cyberpunk Dusk',
+            css: 'linear-gradient(135deg, #080312 0%, #260424 50%, #0d0d2c 100%)',
+            colors: ['#080312', '#260424', '#0d0d2c'],
+            waveColor: '#38bdf8' // sky-400 default
         }
     ],
 
