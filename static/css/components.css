@@ -1,0 +1,406 @@
+/* AuraWave UI Components - Form Inputs, Sliders, Dropzones, and Toggle Switches */
+
+/* General Control Elements */
+.setting-group {
+    margin-bottom: 1.25rem;
+}
+
+.setting-label {
+    display: block;
+    font-size: 0.8rem;
+    font-weight: 600;
+    color: var(--text-secondary);
+    margin-bottom: 0.6rem;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.setting-label-row {
+    display: flex;
+    justify-content: space-between;
+    font-size: 0.8rem;
+    font-weight: 600;
+    color: var(--text-secondary);
+    margin-bottom: 0.6rem;
+    text-transform: uppercase;
+}
+
+.val-display {
+    color: var(--accent-cyan);
+    font-weight: 700;
+}
+
+/* Custom Dropzones */
+.dropzone {
+    border: 2px dashed rgba(255, 255, 255, 0.1);
+    border-radius: var(--radius-md);
+    padding: 1.5rem 1rem;
+    text-align: center;
+    cursor: pointer;
+    transition: var(--transition-smooth);
+    background: rgba(255, 255, 255, 0.01);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    position: relative;
+}
+
+.dropzone:hover {
+    border-color: var(--primary);
+    background: rgba(99, 102, 241, 0.04);
+}
+
+.dropzone.dragover {
+    border-color: var(--accent-cyan);
+    background: rgba(6, 182, 212, 0.08);
+}
+
+.dropzone-icon {
+    font-size: 2rem;
+    color: var(--text-muted);
+    margin-bottom: 0.75rem;
+    transition: var(--transition-smooth);
+}
+
+.dropzone:hover .dropzone-icon {
+    color: var(--primary);
+    transform: scale(1.1);
+}
+
+.dropzone-text {
+    font-size: 0.85rem;
+    font-weight: 500;
+    color: var(--text-primary);
+    margin-bottom: 0.25rem;
+}
+
+.dropzone-sub {
+    font-size: 0.7rem;
+    color: var(--text-muted);
+}
+
+.file-input {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    opacity: 0;
+    cursor: pointer;
+}
+
+/* File Loaded Banner */
+.file-loaded-banner {
+    display: none;
+    align-items: center;
+    gap: 0.75rem;
+    background: rgba(16, 185, 129, 0.08);
+    border: 1px solid rgba(16, 185, 129, 0.3);
+    padding: 0.75rem;
+    border-radius: var(--radius-md);
+    margin-top: 0.75rem;
+}
+
+.success-icon {
+    color: #10b981;
+    font-size: 1.25rem;
+    filter: drop-shadow(0 0 5px rgba(16, 185, 129, 0.4));
+}
+
+.file-details {
+    flex: 1;
+    min-width: 0;
+}
+
+.file-name {
+    display: block;
+    font-size: 0.8rem;
+    font-weight: 600;
+    color: var(--text-primary);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.file-meta {
+    font-size: 0.7rem;
+    color: var(--text-muted);
+}
+
+.remove-btn {
+    background: none;
+    border: none;
+    color: var(--text-muted);
+    cursor: pointer;
+    transition: var(--transition-smooth);
+}
+
+.remove-btn:hover {
+    color: var(--accent-rose);
+}
+
+/* Form Inputs and Interactive Controls */
+.select-input, .text-input {
+    width: 100%;
+    background: rgba(0, 0, 0, 0.4);
+    border: 1px solid var(--border-glass);
+    border-radius: var(--radius-sm);
+    padding: 0.6rem 0.8rem;
+    color: var(--text-primary);
+    outline: none;
+    font-size: 0.85rem;
+    font-family: inherit;
+    transition: var(--transition-smooth);
+}
+
+.select-input:focus, .text-input:focus {
+    border-color: var(--primary);
+    box-shadow: 0 0 10px rgba(99, 102, 241, 0.15);
+}
+
+.slider-input {
+    width: 100%;
+    -webkit-appearance: none;
+    background: rgba(255, 255, 255, 0.1);
+    height: 4px;
+    border-radius: 10px;
+    outline: none;
+}
+
+.slider-input::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    width: 14px;
+    height: 14px;
+    border-radius: 50%;
+    background: var(--primary);
+    cursor: pointer;
+    box-shadow: 0 0 8px var(--primary);
+    transition: var(--transition-smooth);
+}
+
+.slider-input::-webkit-slider-thumb:hover {
+    transform: scale(1.2);
+}
+
+/* Grid Presets */
+.gradient-grid {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 0.5rem;
+}
+
+.gradient-item {
+    aspect-ratio: 16 / 9;
+    border-radius: var(--radius-sm);
+    cursor: pointer;
+    border: 2px solid transparent;
+    transition: var(--transition-smooth);
+}
+
+.gradient-item:hover {
+    transform: scale(1.05);
+}
+
+.gradient-item.active {
+    border-color: var(--accent-cyan);
+    box-shadow: 0 0 10px rgba(6, 182, 212, 0.5);
+}
+
+/* Waveform Style Cards */
+.style-selector-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(100px, 1fr));
+    gap: 0.75rem;
+}
+
+.style-card {
+    background: rgba(0, 0, 0, 0.3);
+    border: 1px solid var(--border-glass);
+    padding: 1rem 0.5rem;
+    border-radius: var(--radius-md);
+    text-align: center;
+    cursor: pointer;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.6rem;
+    transition: var(--transition-smooth);
+}
+
+.style-card i {
+    font-size: 1.5rem;
+    color: var(--text-muted);
+}
+
+.style-card span {
+    font-size: 0.75rem;
+    font-weight: 600;
+    color: var(--text-secondary);
+}
+
+.style-card:hover {
+    border-color: var(--primary-glow);
+    background: rgba(255, 255, 255, 0.02);
+}
+
+.style-card.active {
+    border-color: var(--primary);
+    background: rgba(99, 102, 241, 0.05);
+    box-shadow: var(--shadow-glow);
+}
+
+.style-card.active i {
+    color: var(--primary);
+    filter: drop-shadow(0 0 5px var(--primary-glow));
+}
+
+.style-card.active span {
+    color: var(--text-primary);
+}
+
+/* Toggle Switch Design */
+.toggle-switch {
+    position: relative;
+    display: inline-block;
+    width: 38px;
+    height: 20px;
+}
+
+.toggle-switch input {
+    opacity: 0;
+    width: 0;
+    height: 0;
+}
+
+.toggle-switch .slider {
+    position: absolute;
+    cursor: pointer;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background-color: rgba(255, 255, 255, 0.1);
+    transition: .3s;
+    border-radius: 50px;
+}
+
+.toggle-switch .slider:before {
+    position: absolute;
+    content: "";
+    height: 14px;
+    width: 14px;
+    left: 3px;
+    bottom: 3px;
+    background-color: #fff;
+    transition: .3s;
+    border-radius: 50%;
+}
+
+.toggle-switch input:checked + .slider {
+    background-color: var(--primary);
+}
+
+.toggle-switch input:checked + .slider:before {
+    transform: translateX(18px);
+}
+
+/* Typography Customizers */
+.setting-group-row {
+    display: flex;
+    gap: 0.75rem;
+    align-items: flex-end;
+}
+
+.color-circle-input {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 100%;
+    height: 38px;
+    border: 1px solid var(--border-glass);
+    border-radius: var(--radius-sm);
+    background: none;
+    cursor: pointer;
+    outline: none;
+}
+
+.color-circle-input::-webkit-color-swatch {
+    border: none;
+    border-radius: var(--radius-sm);
+    width: 100%;
+    height: 100%;
+    padding: 0;
+}
+
+.color-circle-input::-moz-color-swatch {
+    border: none;
+    border-radius: var(--radius-sm);
+    width: 100%;
+    height: 100%;
+    padding: 0;
+}
+
+.color-picker-row {
+    display: flex;
+    gap: 0.75rem;
+    align-items: center;
+}
+
+.color-presets {
+    display: flex;
+    gap: 0.4rem;
+    flex: 1;
+}
+
+.color-dot {
+    width: 24px;
+    height: 24px;
+    border-radius: 50%;
+    cursor: pointer;
+    border: 2px solid transparent;
+    transition: var(--transition-smooth);
+}
+
+.color-dot:hover {
+    transform: scale(1.1);
+}
+
+.color-dot.active {
+    border-color: #fff;
+    box-shadow: 0 0 8px rgba(255, 255, 255, 0.4);
+}
+
+.custom-color-input {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    font-size: 0.75rem;
+    color: var(--text-secondary);
+}
+
+.custom-color-input input[type="color"] {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 24px;
+    height: 24px;
+    border-radius: 50%;
+    border: 1px solid var(--border-glass);
+    background: none;
+    cursor: pointer;
+    overflow: hidden;
+}
+
+.custom-color-input input[type="color"]::-webkit-color-swatch {
+    border: none;
+    border-radius: 50%;
+    width: 100%;
+    height: 100%;
+    padding: 0;
+}
+
+.custom-color-input input[type="color"]::-moz-color-swatch {
+    border: none;
+    border-radius: 50%;
+    width: 100%;
+    height: 100%;
+    padding: 0;
+}

@@ -1,0 +1,161 @@
+/* AuraWave Visual Effects - Synth Demo panel, FX Card Options, Collapsible Selectors, and CRT Filters */
+
+/* Lofi Ambient Synthesizer Box */
+.synth-engine-card {
+    background: linear-gradient(135deg, rgba(99, 102, 241, 0.1) 0%, rgba(139, 92, 246, 0.05) 100%);
+    border: 1px solid rgba(99, 102, 241, 0.2);
+    border-radius: var(--radius-md);
+    padding: 1rem;
+    margin-top: 1rem;
+}
+
+.synth-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 0.5rem;
+}
+
+.synth-title {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    font-family: 'Outfit', sans-serif;
+    font-weight: 600;
+    font-size: 0.85rem;
+    color: #a5b4fc;
+}
+
+.beat-pulse {
+    color: var(--primary);
+    animation: spinSlow 4s linear infinite;
+}
+
+@keyframes spinSlow {
+    from { transform: rotate(0deg); }
+    to { transform: rotate(360deg); }
+}
+
+.synth-desc {
+    font-size: 0.7rem;
+    color: var(--text-secondary);
+    line-height: 1.4;
+    margin-bottom: 0.5rem;
+}
+
+.synth-controls {
+    max-height: 0;
+    overflow: hidden;
+    transition: var(--transition-smooth);
+}
+
+.synth-controls.open {
+    max-height: 80px;
+    margin-top: 0.75rem;
+}
+
+.synth-control-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    font-size: 0.75rem;
+    color: var(--text-secondary);
+}
+
+/* Atmospheric FX Cards */
+.fx-option-card {
+    background: rgba(0, 0, 0, 0.2);
+    border: 1px solid var(--border-glass);
+    border-radius: var(--radius-md);
+    padding: 1rem;
+    margin-bottom: 1rem;
+}
+
+.fx-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 0.4rem;
+}
+
+.fx-title {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    font-weight: 600;
+    font-size: 0.85rem;
+    color: var(--text-primary);
+}
+
+.fx-title i {
+    color: var(--accent-cyan);
+}
+
+.fx-desc {
+    font-size: 0.7rem;
+    color: var(--text-muted);
+    line-height: 1.4;
+}
+
+/* Collapsible panel folders */
+.fx-controls {
+    max-height: 0;
+    overflow: hidden;
+    transition: var(--transition-smooth);
+}
+
+.fx-controls.open {
+    max-height: 350px; /* Upgraded to 350px to host multiple sliders & styling options cleanly! */
+    margin-top: 0.75rem;
+    overflow: visible; /* Ensure custom select items aren't clipped and no scrollbar is shown */
+}
+
+/* Flat layout container replacing collapsible panels in waveform settings */
+.fx-controls-flat {
+    margin-top: 0.75rem;
+    display: block;
+}
+
+/* CRT Screen Scanline Overlay Effect */
+.canvas-wrapper.crt-active {
+    position: relative;
+    overflow: hidden;
+    animation: crt-flicker 0.2s infinite;
+}
+
+.canvas-wrapper.crt-active::after {
+    content: " ";
+    display: block;
+    position: absolute;
+    top: 0; left: 0; bottom: 0; right: 0;
+    background: linear-gradient(rgba(18, 16, 16, 0) 50%, rgba(0, 0, 0, 0.2) 50%), 
+                linear-gradient(90deg, rgba(255, 0, 0, 0.04), rgba(0, 255, 0, 0.02), rgba(0, 0, 255, 0.04));
+    z-index: 2;
+    background-size: 100% 4px, 6px 100%;
+    pointer-events: none;
+    opacity: 0.85;
+}
+
+@keyframes crt-flicker {
+    0% { opacity: 0.985; }
+    50% { opacity: 1.0; }
+    100% { opacity: 0.985; }
+}
+
+/* Expander Chevron and Fold Header custom controls */
+.fold-chevron {
+    transition: var(--transition-smooth);
+    font-size: 0.8rem;
+    color: var(--text-secondary);
+}
+.fold-chevron.rotate-180 {
+    transform: rotate(180deg);
+}
+.collapsible-header {
+    cursor: pointer;
+    user-select: none;
+}
+.collapsible-header:hover .fold-chevron {
+    color: var(--text-primary);
+}
+

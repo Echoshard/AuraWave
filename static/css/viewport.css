@@ -1,0 +1,544 @@
+/* AuraWave Viewport Controls - Video Canvas, Player bar, Export panel, and Modal Popups */
+
+/* Center Visualizer Area */
+.viewport-area {
+    display: flex;
+    flex-direction: column;
+    gap: 1.5rem;
+    height: calc(100vh - 120px);
+}
+
+.viewport-card {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+}
+
+.viewport-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 0.75rem 1rem;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+    background: rgba(0, 0, 0, 0.15);
+}
+
+.video-info {
+    display: flex;
+    gap: 0.5rem;
+}
+
+.resolution-indicator, .fps-indicator {
+    font-size: 0.7rem;
+    font-weight: 700;
+    padding: 0.25rem 0.5rem;
+    border-radius: 4px;
+    background: rgba(255, 255, 255, 0.05);
+    color: var(--text-secondary);
+}
+
+.resolution-indicator {
+    color: var(--accent-cyan);
+}
+
+.viewport-toggles {
+    display: flex;
+    gap: 0.4rem;
+}
+
+.aspect-btn {
+    background: none;
+    border: 1px solid var(--border-glass);
+    color: var(--text-muted);
+    font-size: 0.7rem;
+    font-weight: 600;
+    padding: 0.3rem 0.6rem;
+    border-radius: 4px;
+    cursor: pointer;
+    transition: var(--transition-smooth);
+    display: flex;
+    align-items: center;
+    gap: 0.3rem;
+}
+
+.aspect-btn:hover {
+    color: var(--text-primary);
+    border-color: rgba(255, 255, 255, 0.15);
+}
+
+.aspect-btn.active {
+    color: var(--text-primary);
+    background: var(--primary);
+    border-color: var(--primary);
+    box-shadow: 0 0 10px var(--primary-glow);
+}
+
+/* Canvas Viewport Styles */
+.canvas-wrapper {
+    flex: 1;
+    position: relative;
+    background: #020203;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    overflow: hidden;
+    margin: 1.5rem;
+    border-radius: var(--radius-md);
+    box-shadow: inset 0 0 30px rgba(0, 0, 0, 0.8), 0 0 30px rgba(0, 0, 0, 0.6);
+    border: 1px solid rgba(255, 255, 255, 0.03);
+    transition: var(--transition-smooth);
+}
+
+/* Landscape vs Portrait bounds */
+.canvas-wrapper.landscape-ratio {
+    aspect-ratio: 16 / 9;
+    max-height: calc(100% - 100px);
+    width: auto;
+}
+
+.canvas-wrapper.portrait-ratio {
+    aspect-ratio: 9 / 16;
+    height: calc(100% - 60px);
+    width: auto;
+}
+
+#visualizer-canvas {
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
+    background-color: transparent;
+    display: block;
+}
+
+/* Canvas Overlays */
+.canvas-overlay {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: rgba(0, 0, 0, 0.4);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    opacity: 0;
+    pointer-events: none;
+    transition: var(--transition-smooth);
+}
+
+.canvas-wrapper:hover .canvas-overlay {
+    opacity: 1;
+    pointer-events: auto;
+}
+
+.play-overlay-btn {
+    width: 60px;
+    height: 60px;
+    border-radius: 50%;
+    background: rgba(99, 102, 241, 0.85);
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    color: #fff;
+    font-size: 1.5rem;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    transition: var(--transition-smooth);
+    box-shadow: 0 0 20px var(--primary-glow);
+}
+
+.play-overlay-btn:hover {
+    transform: scale(1.1);
+    background: var(--primary);
+}
+
+/* Spinner / Loader on Canvas */
+.canvas-loading {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: #09090b;
+    display: none;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 1rem;
+    z-index: 10;
+}
+
+.spinner {
+    width: 32px;
+    height: 32px;
+    border: 3px solid rgba(99, 102, 241, 0.1);
+    border-top: 3px solid var(--primary);
+    border-radius: 50%;
+    animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+    from { transform: rotate(0deg); }
+    to { transform: rotate(360deg); }
+}
+
+.canvas-loading span {
+    font-size: 0.8rem;
+    color: var(--text-secondary);
+    font-weight: 500;
+}
+
+/* Custom Music Player Controls bar */
+.player-controls {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    padding: 0.75rem 1.5rem;
+    border-top: 1px solid rgba(255, 255, 255, 0.05);
+    background: rgba(0, 0, 0, 0.2);
+}
+
+.control-btn {
+    background: none;
+    border: none;
+    color: var(--text-primary);
+    font-size: 1.1rem;
+    cursor: pointer;
+    width: 32px;
+    height: 32px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: var(--transition-smooth);
+}
+
+.control-btn:hover {
+    background: rgba(255, 255, 255, 0.05);
+    color: var(--accent-cyan);
+}
+
+.time-display {
+    font-size: 0.75rem;
+    font-weight: 700;
+    color: var(--text-secondary);
+    min-width: 36px;
+}
+
+.progress-bar-container {
+    flex: 1;
+    height: 4px;
+    background: rgba(255, 255, 255, 0.1);
+    border-radius: 10px;
+    position: relative;
+    cursor: pointer;
+}
+
+.progress-bar {
+    position: absolute;
+    left: 0;
+    top: 0;
+    height: 100%;
+    width: 0%;
+    background: linear-gradient(to right, var(--primary), var(--accent-cyan));
+    border-radius: 10px;
+    box-shadow: 0 0 6px var(--primary-glow);
+}
+
+.volume-container {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    color: var(--text-muted);
+}
+
+.volume-container input {
+    width: 60px;
+    cursor: pointer;
+}
+
+/* Lower Panel: Export Cards */
+.export-panel {
+    padding: 1.5rem;
+}
+
+.export-header-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 1.25rem;
+}
+
+.version-badge {
+    font-size: 0.65rem;
+    font-weight: 700;
+    padding: 0.25rem 0.5rem;
+    background: rgba(16, 185, 129, 0.1);
+    border: 1px solid rgba(16, 185, 129, 0.2);
+    color: #10b981;
+    border-radius: 4px;
+    text-transform: uppercase;
+}
+
+.export-options-row {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 1rem;
+    margin-bottom: 1.25rem;
+}
+
+.export-option-box {
+    background: rgba(0, 0, 0, 0.2);
+    border: 1px solid var(--border-glass);
+    border-radius: var(--radius-md);
+    padding: 1.25rem;
+    cursor: pointer;
+    position: relative;
+    transition: var(--transition-smooth);
+    display: flex;
+    gap: 1rem;
+    align-items: flex-start;
+}
+
+.export-option-box:hover {
+    border-color: rgba(255, 255, 255, 0.15);
+}
+
+.box-icon {
+    font-size: 1.5rem;
+    color: var(--text-muted);
+    margin-top: 2px;
+    transition: var(--transition-smooth);
+}
+
+.box-check {
+    position: absolute;
+    top: 10px;
+    right: 10px;
+    font-size: 0.85rem;
+    color: var(--text-muted);
+    opacity: 0;
+    transition: var(--transition-smooth);
+}
+
+.box-details {
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+}
+
+.box-title {
+    font-size: 0.85rem;
+    font-weight: 600;
+    color: var(--text-primary);
+}
+
+.box-desc {
+    font-size: 0.7rem;
+    color: var(--text-muted);
+    line-height: 1.35;
+}
+
+.export-option-box.active {
+    border-color: var(--primary);
+    background: rgba(99, 102, 241, 0.04);
+}
+
+.export-option-box.active .box-icon {
+    color: var(--primary);
+    filter: drop-shadow(0 0 5px var(--primary-glow));
+}
+
+.export-option-box.active .box-check {
+    color: var(--primary);
+    opacity: 1;
+}
+
+/* Master Export Button */
+.render-trigger-btn {
+    width: 100%;
+    padding: 1rem;
+    border: none;
+    border-radius: var(--radius-md);
+    font-family: 'Outfit', sans-serif;
+    font-size: 1rem;
+    font-weight: 700;
+    color: #fff;
+    cursor: pointer;
+    background: linear-gradient(135deg, var(--accent-cyan), var(--primary), var(--accent-purple));
+    box-shadow: 0 4px 20px rgba(99, 102, 241, 0.3);
+    transition: var(--transition-smooth);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.75rem;
+}
+
+.render-trigger-btn:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 6px 30px rgba(99, 102, 241, 0.5), 0 0 10px var(--accent-cyan);
+}
+
+.render-trigger-btn:active {
+    transform: translateY(0);
+}
+
+/* Glowing Progress Modal Window */
+.modal-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100vw;
+    height: 100vh;
+    background: rgba(0, 0, 0, 0.85);
+    backdrop-filter: blur(8px);
+    z-index: 100;
+    display: none; /* Flex when active */
+    align-items: center;
+    justify-content: center;
+}
+
+.render-modal-card {
+    width: 440px;
+    padding: 2.5rem 2rem;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    text-align: center;
+    border-color: rgba(99, 102, 241, 0.2);
+}
+
+.modal-glowing-ring {
+    position: relative;
+    width: 90px;
+    height: 90px;
+    margin-bottom: 1.5rem;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.spinner-ring {
+    font-size: 5rem;
+    color: var(--primary);
+    animation: spin 1.5s linear infinite;
+    filter: drop-shadow(0 0 12px var(--primary-glow));
+}
+
+.progress-percent {
+    position: absolute;
+    font-family: 'Space Grotesk', sans-serif;
+    font-weight: 700;
+    font-size: 1.25rem;
+    color: var(--text-primary);
+}
+
+.modal-title {
+    font-family: 'Outfit', sans-serif;
+    font-size: 1.25rem;
+    font-weight: 700;
+    margin-bottom: 0.5rem;
+}
+
+.modal-subtitle {
+    font-size: 0.8rem;
+    color: var(--text-secondary);
+    margin-bottom: 1.5rem;
+    line-height: 1.4;
+}
+
+.modal-progressbar-track {
+    width: 100%;
+    height: 6px;
+    background: rgba(255, 255, 255, 0.08);
+    border-radius: 10px;
+    overflow: hidden;
+    margin-bottom: 1rem;
+}
+
+.modal-progressbar-fill {
+    height: 100%;
+    width: 0%;
+    background: linear-gradient(to right, var(--accent-cyan), var(--primary));
+    box-shadow: 0 0 8px var(--primary);
+    border-radius: 10px;
+    transition: width 0.1s ease;
+}
+
+.modal-details {
+    font-family: monospace;
+    font-size: 0.7rem;
+    color: var(--text-muted);
+    background: rgba(0, 0, 0, 0.3);
+    padding: 0.6rem 0.8rem;
+    border-radius: var(--radius-sm);
+    width: 100%;
+    margin-bottom: 1.5rem;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.modal-cancel-btn {
+    background: none;
+    border: 1px solid var(--border-glass);
+    color: var(--text-secondary);
+    padding: 0.6rem 1.5rem;
+    border-radius: var(--radius-md);
+    cursor: pointer;
+    font-size: 0.8rem;
+    font-weight: 600;
+    transition: var(--transition-smooth);
+}
+
+.modal-cancel-btn:hover {
+    color: var(--accent-rose);
+    border-color: rgba(244, 63, 94, 0.3);
+    background: rgba(244, 63, 94, 0.05);
+}
+
+.modal-success-btn {
+    background: linear-gradient(135deg, #10b981, #059669);
+    border: none;
+    color: #fff;
+    padding: 0.8rem 2rem;
+    border-radius: var(--radius-md);
+    cursor: pointer;
+    font-family: 'Outfit', sans-serif;
+    font-size: 0.95rem;
+    font-weight: 700;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    transition: var(--transition-smooth);
+    box-shadow: 0 4px 15px rgba(16, 185, 129, 0.3);
+}
+
+.modal-success-btn:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 6px 20px rgba(16, 185, 129, 0.5);
+}
+
+/* Interactive Utility classes */
+.text-glow-blue {
+    color: var(--accent-cyan);
+    text-shadow: 0 0 8px rgba(6, 182, 212, 0.4);
+}
+
+/* Tablet adjustments */
+@media (max-width: 1024px) {
+    .app-workspace {
+        grid-template-columns: 1fr;
+    }
+    .control-panel {
+        height: auto;
+        overflow: visible;
+    }
+    .viewport-area {
+        height: auto;
+    }
+    .canvas-wrapper.landscape-ratio {
+        max-height: 400px;
+    }
+}

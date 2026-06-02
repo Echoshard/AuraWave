@@ -1,0 +1,996 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AuraWave - Premium Audio Video Creator</title>
+    <!-- Google Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Outfit:wght@400;500;600;700;800&family=Montserrat:wght@400;600;800&family=Playfair+Display:ital,wght@0,700;1,400&family=Space+Grotesk:wght@500;700&display=swap" rel="stylesheet">
+    <!-- FontAwesome for Premium Icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <!-- Custom Stylesheet -->
+    <link rel="stylesheet" href="/static/css/styles.css">
+</head>
+<body>
+    <!-- Animated Glowing Background Mesh -->
+    <div class="mesh-gradient"></div>
+    <div class="mesh-overlay"></div>
+
+    <div class="app-container">
+        <!-- Header -->
+        <header class="app-header">
+            <div class="logo">
+                <i class="fa-solid fa-wand-magic-sparkles logo-icon"></i>
+                <span class="logo-text">Aura<span>Wave</span></span>
+            </div>
+            <div class="header-badges">
+                <span class="badge"><i class="fa-solid fa-bolt"></i> GPU Accelerated</span>
+                <span class="badge secondary"><i class="fa-solid fa-server"></i> Server-side FFmpeg</span>
+            </div>
+        </header>
+
+        <!-- Main Layout Grid -->
+        <main class="app-workspace">
+            
+            <!-- Left Panel: Controls & Visual Customizer -->
+            <section class="control-panel glass-card">
+                <div class="panel-tabs">
+                    <button class="tab-btn active" data-target="tab-media">
+                        <i class="fa-solid fa-photo-film"></i> Media
+                    </button>
+                    <button class="tab-btn" data-target="tab-waveform">
+                        <i class="fa-solid fa-wave-square"></i> Waveform
+                    </button>
+                    <button class="tab-btn" data-target="tab-style">
+                        <i class="fa-solid fa-palette"></i> Style & FX
+                    </button>
+                    <button class="tab-btn" data-target="tab-text">
+                        <i class="fa-solid fa-font"></i> Typography
+                    </button>
+                </div>
+
+                <div class="panel-content">
+                    <!-- Tab 1: Media Uploads -->
+                    <div class="tab-pane active" id="tab-media">
+                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem; border-bottom: 1px solid rgba(255,255,255,0.06); padding-bottom: 0.5rem;">
+                            <h2 class="section-title" style="margin: 0;">Configure Assets</h2>
+                            <button id="clean-uploads-btn" class="action-btn danger-btn" style="padding: 0.45rem 0.9rem; font-size: 0.8rem; border-radius: 6px; background: rgba(239, 68, 68, 0.15); border: 1px solid rgba(239, 68, 68, 0.35); color: #fca5a5; cursor: pointer; display: flex; align-items: center; gap: 0.5rem; transition: all 0.2s; font-family: 'Inter', sans-serif; font-weight: 500;">
+                                <i class="fa-solid fa-trash-can"></i> Clean Uploads
+                            </button>
+                        </div>
+                        
+                        <!-- Audio File Dropzone -->
+                        <div class="setting-group">
+                            <label class="setting-label">Audio Track</label>
+                            <div class="dropzone" id="audio-dropzone">
+                                <i class="fa-solid fa-music dropzone-icon"></i>
+                                <span class="dropzone-text">Drag & drop audio track, or click to browse</span>
+                                <span class="dropzone-sub">Supports MP3, WAV, M4A, OGG</span>
+                                <input type="file" id="audio-input" accept="audio/*" class="file-input">
+                            </div>
+                            <div class="file-loaded-banner" id="audio-banner">
+                                <i class="fa-solid fa-circle-check success-icon"></i>
+                                <div class="file-details">
+                                    <span class="file-name" id="audio-name">track.mp3</span>
+                                    <span class="file-meta" id="audio-meta">03:45 | Stereo</span>
+                                </div>
+                                <button class="remove-btn" id="remove-audio-btn"><i class="fa-solid fa-trash"></i></button>
+                            </div>
+                        </div>
+
+                        <!-- Synthetic Lofi Beat Engine (WOW Out-of-the-box experience!) -->
+                        <div class="synth-engine-card">
+                            <div class="synth-header">
+                                <div class="synth-title">
+                                    <i class="fa-solid fa-compact-disc beat-pulse"></i>
+                                    <span>Built-in Ambient Synth</span>
+                                </div>
+                                <label class="toggle-switch">
+                                    <input type="checkbox" id="synth-toggle">
+                                    <span class="slider"></span>
+                                </label>
+                            </div>
+                            <p class="synth-desc">No audio ready? Toggle this to synthesize an active lo-fi ambient soundtrack instantly in your browser!</p>
+                            <div class="synth-controls" id="synth-options">
+                                <div class="synth-control-row">
+                                    <span>Melody Preset:</span>
+                                    <select id="synth-melody" class="select-input">
+                                        <option value="chill">Retro Dreamscape</option>
+                                        <option value="cyber">Cyberpunk Midnight</option>
+                                        <option value="cozy">Cozy Fireplace</option>
+                                    </select>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Background Image Dropzone -->
+                        <div class="setting-group" style="margin-top: 1.5rem;">
+                            <label class="setting-label">Background Asset (Image/Video)</label>
+                            <div class="dropzone" id="bg-dropzone">
+                                <i class="fa-solid fa-photo-film dropzone-icon"></i>
+                                <span class="dropzone-text">Drag & drop background image or video</span>
+                                <span class="dropzone-sub">Supports JPG, PNG, WEBP, MP4, WEBM</span>
+                                <input type="file" id="bg-input" accept="image/*,video/*" class="file-input">
+                            </div>
+                            <div class="file-loaded-banner" id="bg-banner">
+                                <i class="fa-solid fa-circle-check success-icon"></i>
+                                <div class="file-details">
+                                     <span class="file-name" id="bg-name">background.png</span>
+                                     <span class="file-meta" id="bg-meta">1920 x 1080</span>
+                                </div>
+                                <button class="remove-btn" id="remove-bg-btn"><i class="fa-solid fa-trash"></i></button>
+                            </div>
+                            
+                            <!-- Background positioning controls -->
+                            <div class="setting-group" id="bg-adjustments" style="margin-top: 1rem;">
+                                <label class="setting-label">Background Position & Scale</label>
+                                <div class="setting-group" style="margin-bottom: 0.75rem;">
+                                    <label class="setting-label-row">
+                                        <span>Zoom Scale</span>
+                                        <span class="val-display" id="bg-zoom-val">1.0x</span>
+                                    </label>
+                                    <input type="range" id="bg-zoom" min="1.0" max="2.5" step="0.05" value="1.0" class="slider-input">
+                                </div>
+                                <div class="setting-group-row">
+                                    <div class="setting-group" style="flex: 1; margin-bottom: 0;">
+                                        <label class="setting-label-row">
+                                            <span>Shift X</span>
+                                            <span class="val-display" id="bg-shiftx-val">0px</span>
+                                        </label>
+                                        <input type="range" id="bg-shiftx" min="-600" max="600" step="10" value="0" class="slider-input">
+                                    </div>
+                                    <div class="setting-group" style="flex: 1; margin-bottom: 0;">
+                                        <label class="setting-label-row">
+                                            <span>Shift Y</span>
+                                            <span class="val-display" id="bg-shifty-val">0px</span>
+                                        </label>
+                                        <input type="range" id="bg-shifty" min="-600" max="600" step="10" value="0" class="slider-input">
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Foreground Cutout Layer Dropzone (NEW Feature) -->
+                        <div class="setting-group" style="margin-top: 1.5rem;">
+                            <label class="setting-label">Foreground Cutout Layer (Optional PNG/Video)</label>
+                            <div class="dropzone" id="fg-dropzone">
+                                <i class="fa-solid fa-user-ninja dropzone-icon"></i>
+                                <span class="dropzone-text">Drag & drop transparent foreground character</span>
+                                <span class="dropzone-sub">Supports transparent PNG, WEBP, MP4, WEBM</span>
+                                <input type="file" id="fg-input" accept="image/*,video/*" class="file-input">
+                            </div>
+                            <div class="file-loaded-banner" id="fg-banner" style="display: none;">
+                                <i class="fa-solid fa-circle-check success-icon"></i>
+                                <div class="file-details">
+                                     <span class="file-name" id="fg-name">character.png</span>
+                                     <span class="file-meta" id="fg-meta">1000 x 1000</span>
+                                </div>
+                                <button class="remove-btn" id="remove-fg-btn"><i class="fa-solid fa-trash"></i></button>
+                            </div>
+                            
+                            <!-- Foreground positioning & layer controls -->
+                            <div class="setting-group" id="fg-adjustments" style="margin-top: 1rem; display: none;">
+                                <label class="setting-label">Foreground Layer Position & Scale</label>
+                                
+                                <div class="setting-group" style="margin-bottom: 0.75rem;">
+                                    <label class="setting-label">Layer Depth Ordering</label>
+                                    <select id="fg-layer-position" class="select-input">
+                                        <option value="infront" selected>In Front of Beat Ring (Halo Effect)</option>
+                                        <option value="behind">Behind Beat Ring</option>
+                                    </select>
+                                </div>
+
+                                <div class="setting-group" style="margin-bottom: 0.75rem;">
+                                    <label class="setting-label-row">
+                                        <span>Foreground Zoom</span>
+                                        <span class="val-display" id="fg-zoom-val">1.0x</span>
+                                    </label>
+                                    <input type="range" id="fg-zoom" min="0.2" max="2.5" step="0.05" value="1.0" class="slider-input">
+                                </div>
+                                <div class="setting-group-row">
+                                    <div class="setting-group" style="flex: 1; margin-bottom: 0;">
+                                        <label class="setting-label-row">
+                                            <span>Shift X</span>
+                                            <span class="val-display" id="fg-shiftx-val">0px</span>
+                                        </label>
+                                        <input type="range" id="fg-shiftx" min="-600" max="600" step="10" value="0" class="slider-input">
+                                    </div>
+                                    <div class="setting-group" style="flex: 1; margin-bottom: 0;">
+                                        <label class="setting-label-row">
+                                            <span>Shift Y</span>
+                                            <span class="val-display" id="fg-shifty-val">0px</span>
+                                        </label>
+                                        <input type="range" id="fg-shifty" min="-600" max="600" step="10" value="0" class="slider-input">
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Gradient Presets -->
+                        <div class="setting-group">
+                            <label class="setting-label">Or Choose a Premium Gradient Preset</label>
+                            <div class="gradient-grid" id="gradient-presets">
+                                <!-- Generated Dynamically -->
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Tab 2: Waveform Visualizer -->
+                    <div class="tab-pane" id="tab-waveform">
+                        <h2 class="section-title">Waveform settings</h2>
+                        
+                        <!-- 1. Color Options Card -->
+                        <div class="fx-option-card">
+                            <div class="fx-header">
+                                <div class="fx-title">
+                                    <i class="fa-solid fa-droplet" style="color: var(--accent-cyan);"></i>
+                                    <span>Color & Glow Options</span>
+                                </div>
+                            </div>
+                            <div class="fx-controls-flat" id="wave-folder-color">
+                                <!-- Waveform Color Presets -->
+                                <div class="setting-group">
+                                    <label class="setting-label">Preset Colors & Gradients</label>
+                                    <div class="color-presets" id="wave-color-presets" style="margin-bottom: 1rem;">
+                                        <!-- Dynamic color presets loaded here -->
+                                    </div>
+                                    <div class="custom-color-input-row" style="display: flex; align-items: center; gap: 0.75rem; border-top: 1px solid rgba(255,255,255,0.06); padding-top: 0.75rem;">
+                                        <input type="color" id="waveform-color" value="#6366f1" class="color-circle-input" style="height: 32px; width: 32px; padding: 0;">
+                                        <span style="font-size: 0.85rem; font-weight: 500; color: var(--text-secondary);">Custom Waveform Color</span>
+                                    </div>
+                                </div>
+
+                                <!-- Global Visualizer Glow Settings (NEW) -->
+                                <div class="setting-group" style="margin-top: 1.25rem; border-top: 1px solid rgba(255,255,255,0.06); padding-top: 1rem;">
+                                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem;">
+                                        <span style="font-size: 0.8rem; font-weight: 600; color: #a5b4fc; text-transform: uppercase;">Master Neon Glow</span>
+                                        <label class="toggle-switch">
+                                            <input type="checkbox" id="waveform-glow-enabled" checked>
+                                            <span class="slider"></span>
+                                        </label>
+                                    </div>
+                                    <p class="fx-desc" style="margin-bottom: 0.75rem;">Enable high-fidelity bloom and neon glow effects for all visualizers and shapes.</p>
+                                    
+                                    <div id="glow-intensity-controls" style="display: flex; flex-direction: column; gap: 0.75rem;">
+                                        <div class="setting-group" style="margin-bottom: 0;">
+                                            <label class="setting-label-row">
+                                                <span>Bloom Brightness / Intensity</span>
+                                                <span class="val-display" id="glow-strength-val">1.0x</span>
+                                            </label>
+                                            <input type="range" id="waveform-glow-strength" min="0.0" max="3.0" step="0.1" value="1.0" class="slider-input">
+                                        </div>
+                                        
+                                        <!-- Glow Spread Setting (NEW) -->
+                                        <div class="setting-group" style="margin-bottom: 0;">
+                                            <label class="setting-label-row">
+                                                <span>Glow Spread / Radius</span>
+                                                <span class="val-display" id="glow-radius-val">35px</span>
+                                            </label>
+                                            <input type="range" id="waveform-glow-radius" min="5" max="100" step="5" value="35" class="slider-input">
+                                        </div>
+
+                                        <!-- Glow Opacity Setting (NEW) -->
+                                        <div class="setting-group" style="margin-bottom: 0;">
+                                            <label class="setting-label-row">
+                                                <span>Glow Opacity / Density</span>
+                                                <span class="val-display" id="glow-opacity-val">85%</span>
+                                            </label>
+                                            <input type="range" id="waveform-glow-opacity" min="0.10" max="1.0" step="0.05" value="0.85" class="slider-input">
+                                        </div>
+
+                                        <!-- Bloom Color Settings (NEW) -->
+                                        <div class="setting-group" style="margin-bottom: 0;">
+                                            <label class="setting-label">Bloom Color Mode</label>
+                                            <select id="waveform-glow-colormode" class="select-input">
+                                                <option value="inherit" selected>Match Waveform Color</option>
+                                                <option value="custom">Custom Bloom Color</option>
+                                            </select>
+                                        </div>
+                                        
+                                        <div class="custom-color-input-row" id="glow-custom-color-row" style="display: none; align-items: center; gap: 0.75rem; border-top: 1px solid rgba(255,255,255,0.06); padding-top: 0.75rem; margin-bottom: 0.25rem;">
+                                            <input type="color" id="waveform-glow-color" value="#a5b4fc" class="color-circle-input" style="height: 32px; width: 32px; padding: 0;">
+                                            <span style="font-size: 0.85rem; font-weight: 500; color: var(--text-secondary);">Custom Bloom Color</span>
+                                        </div>
+
+                                        <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 0.25rem;">
+                                            <span style="font-size: 0.8rem; font-weight: 500; color: var(--text-secondary);">Glow with Audio Beat</span>
+                                            <label class="toggle-switch">
+                                                <input type="checkbox" id="waveform-glow-with-beat" checked>
+                                                <span class="slider"></span>
+                                            </label>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- 2. Geometry & FFT Settings Card -->
+                        <div class="fx-option-card">
+                            <div class="fx-header">
+                                <div class="fx-title">
+                                    <i class="fa-solid fa-sliders" style="color: var(--accent-cyan);"></i>
+                                    <span>Geometry & FFT Settings</span>
+                                </div>
+                            </div>
+                            <div class="fx-controls-flat" id="wave-folder-settings">
+                                <!-- Visualizer Style Selector -->
+                                <div class="setting-group">
+                                    <label class="setting-label">Visualizer Style</label>
+                                    <div class="style-selector-grid">
+                                        <div class="style-card active" data-style="wave">
+                                            <i class="fa-solid fa-wave-square"></i>
+                                            <span>Neon Wave</span>
+                                        </div>
+                                        <div class="style-card" data-style="bars">
+                                            <i class="fa-solid fa-chart-simple"></i>
+                                            <span>Retro Bars</span>
+                                        </div>
+                                        <div class="style-card" data-style="giantBars">
+                                            <i class="fa-solid fa-align-justify" style="transform: rotate(90deg);"></i>
+                                            <span>Giant Equalizer</span>
+                                        </div>
+                                        <div class="style-card" data-style="circular">
+                                            <i class="fa-solid fa-circle-notch"></i>
+                                            <span>Circular Pulsar</span>
+                                        </div>
+                                        <div class="style-card" data-style="shapes">
+                                            <i class="fa-solid fa-shapes"></i>
+                                            <span>Glowing Shapes</span>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <!-- Opacity Slider -->
+                                <div class="setting-group">
+                                    <label class="setting-label-row">
+                                        <span>Visualizer Opacity</span>
+                                        <span class="val-display" id="wave-opacity-val">100%</span>
+                                    </label>
+                                    <input type="range" id="waveform-opacity" min="0.0" max="1.0" step="0.05" value="1.0" class="slider-input">
+                                </div>
+
+                                <!-- Sensitivity Slider -->
+                                <div class="setting-group">
+                                    <label class="setting-label-row">
+                                        <span>Sensitivity</span>
+                                        <span class="val-display" id="sens-val">1.2x</span>
+                                    </label>
+                                    <input type="range" id="waveform-sensitivity" min="0.5" max="3" step="0.1" value="1.2" class="slider-input">
+                                </div>
+
+                                <!-- Waveform Height -->
+                                <div class="setting-group">
+                                    <label class="setting-label-row">
+                                        <span>Waveform Height</span>
+                                        <span class="val-display" id="height-val">250px</span>
+                                    </label>
+                                    <input type="range" id="waveform-height" min="50" max="600" step="10" value="250" class="slider-input">
+                                </div>
+
+                                <!-- Symmetrical Bars width group -->
+                                <div class="setting-group" id="bar-width-group">
+                                    <label class="setting-label-row">
+                                        <span>Bar Width & Spacing</span>
+                                        <span class="val-display" id="bar-val">6px</span>
+                                    </label>
+                                    <input type="range" id="waveform-bar-width" min="2" max="24" step="1" value="6" class="slider-input">
+                                </div>
+
+                                <!-- Mirrored Visualizer Group (NEW) -->
+                                <div class="setting-group" id="mirror-toggle-group" style="display: none; margin-bottom: 1rem; border-top: 1px solid rgba(255,255,255,0.06); padding-top: 1rem;">
+                                    <div style="display: flex; justify-content: space-between; align-items: center;">
+                                        <span style="font-size: 0.85rem; font-weight: 500; color: var(--text-secondary);">Mirror Top & Bottom</span>
+                                        <label class="toggle-switch">
+                                            <input type="checkbox" id="waveform-mirror">
+                                            <span class="slider"></span>
+                                        </label>
+                                    </div>
+                                    <p class="fx-desc" style="margin-top: 0.25rem; margin-bottom: 0;">Renders mirrored copies of the visualizer on both top and bottom edges of the screen.</p>
+                                </div>
+
+                                <!-- FFT Smoothing Slider -->
+                                <div class="setting-group">
+                                    <label class="setting-label-row">
+                                        <span>Smoothing (FFT)</span>
+                                        <span class="val-display" id="smooth-val">0.8</span>
+                                    </label>
+                                    <input type="range" id="waveform-smoothing" min="0.5" max="0.95" step="0.05" value="0.8" class="slider-input">
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- 3. Viewport Position Card -->
+                        <div class="fx-option-card">
+                            <div class="fx-header">
+                                <div class="fx-title">
+                                    <i class="fa-solid fa-arrows-to-eye" style="color: var(--accent-cyan);"></i>
+                                    <span>Viewport Position & Alignment</span>
+                                </div>
+                            </div>
+                            <div class="fx-controls-flat" id="wave-folder-position">
+                                <!-- Vertical Position Selector -->
+                                <div class="setting-group">
+                                    <label class="setting-label">Vertical Position</label>
+                                    <select id="waveform-position" class="select-input">
+                                        <option value="bottom">Lower Third (Bottom)</option>
+                                        <option value="middle" selected>Perfect Center (Middle)</option>
+                                        <option value="top">Header Third (Top)</option>
+                                    </select>
+                                </div>
+
+                                <!-- Symmetrical translation shift pan offsets -->
+                                <div class="setting-group" style="margin-top: 1rem;">
+                                    <label class="setting-label">Waveform Position Offset</label>
+                                    <div class="setting-group-row">
+                                        <div class="setting-group" style="flex: 1; margin-bottom: 0;">
+                                            <label class="setting-label-row">
+                                                <span>Wave Shift X</span>
+                                                <span class="val-display" id="wave-shiftx-val">0px</span>
+                                            </label>
+                                            <input type="range" id="wave-shiftx" min="-800" max="800" step="10" value="0" class="slider-input">
+                                        </div>
+                                        <div class="setting-group" style="flex: 1; margin-bottom: 0;">
+                                            <label class="setting-label-row">
+                                                <span>Wave Shift Y</span>
+                                                <span class="val-display" id="wave-shifty-val">0px</span>
+                                            </label>
+                                            <input type="range" id="wave-shifty" min="-800" max="800" step="10" value="0" class="slider-input">
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- 4. Advanced Visual Customizer Card -->
+                        <div class="fx-option-card">
+                            <div class="fx-header">
+                                <div class="fx-title">
+                                    <i class="fa-solid fa-gear" style="color: var(--accent-cyan);"></i>
+                                    <span>Advanced Visual Customizer</span>
+                                </div>
+                            </div>
+                            <div class="fx-controls-flat" id="wave-folder-advanced">
+                                <!-- Dynamic 3D Wireframes & Beat shapes configurations -->
+                                <div class="setting-group" id="shapes-options-group" style="display: none;">
+                                    <label class="setting-label">Glow Shape Configuration</label>
+                                    
+                                    <div class="setting-group" style="margin-bottom: 0.75rem;">
+                                        <span>Shape Type</span>
+                                        <select id="shape-type" class="select-input">
+                                            <option value="ring" selected>Neon Beat Ring (Halo Circle)</option>
+                                            <option value="sphere">Neon Beat Sphere (Centered Orb)</option>
+                                            <option value="cube">Rotating Wireframe Cube (3D)</option>
+                                            <option value="hypercube">4D Rotating Tesseract (Hypercube)</option>
+                                            <option value="pyramid">Rotating Wireframe Pyramid (3D)</option>
+                                            <option value="triangle">2D Triangle (Upward)</option>
+                                            <option value="triangle_down">2D Triangle (Downward)</option>
+                                            <option value="hexagon">2D Hexagon</option>
+                                            <option value="hexagon_prism">Rotating Hexagonal Prism (3D)</option>
+                                        </select>
+                                    </div>
+
+                                    <div class="setting-group" style="margin-bottom: 0.75rem;">
+                                        <label class="setting-label-row">
+                                            <span>Base Shape Size</span>
+                                            <span class="val-display" id="shape-size-val">320px</span>
+                                        </label>
+                                        <input type="range" id="shape-size" min="100" max="500" step="10" value="320" class="slider-input">
+                                    </div>
+
+                                    <div class="setting-group" style="margin-bottom: 0.75rem;">
+                                        <label class="setting-label-row">
+                                            <span>Glow Size / Radius</span>
+                                            <span class="val-display" id="shape-glow-strength-val">1.0x</span>
+                                        </label>
+                                        <input type="range" id="shape-glow-strength" min="0.0" max="3.0" step="0.1" value="1.0" class="slider-input">
+                                    </div>
+
+                                    <div class="setting-group" style="margin-bottom: 0.75rem;">
+                                        <label class="setting-label">Beat Reactive Options</label>
+                                        <div style="display: flex; gap: 1.5rem; align-items: center; margin-top: 0.5rem;">
+                                            <div style="display: flex; align-items: center; gap: 0.6rem;">
+                                                <label class="toggle-switch">
+                                                    <input type="checkbox" id="shape-scale-reactive" checked>
+                                                    <span class="slider"></span>
+                                                </label>
+                                                <span style="font-size: 0.8rem; font-weight: 500; color: var(--text-secondary);">Scale Beat</span>
+                                            </div>
+                                            <div style="display: flex; align-items: center; gap: 0.6rem;">
+                                                <label class="toggle-switch">
+                                                    <input type="checkbox" id="shape-glow-reactive" checked>
+                                                    <span class="slider"></span>
+                                                </label>
+                                                <span style="font-size: 0.8rem; font-weight: 500; color: var(--text-secondary);">Glow Beat</span>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <!-- Symmetrical Rotation Transform Slider -->
+                                <div class="setting-group" style="margin-top: 1rem; border-top: 1px solid rgba(255,255,255,0.06); padding-top: 1rem;">
+                                    <label class="setting-label">Advanced Waveform Transform</label>
+                                    <div class="fx-option-card" style="margin-bottom: 0.75rem; padding: 0.75rem; background: rgba(0, 0, 0, 0.2);">
+                                        <div class="fx-header" style="margin-bottom: 0.5rem; display: flex; justify-content: space-between; align-items: center;">
+                                            <span style="font-size: 0.8rem; font-weight: 600; color: var(--text-secondary); text-transform: uppercase;">Waveform Rotation</span>
+                                            <label class="toggle-switch">
+                                                <input type="checkbox" id="wave-rotation-enabled">
+                                                <span class="slider"></span>
+                                            </label>
+                                        </div>
+                                        <div class="synth-control-row">
+                                            <label class="setting-label-row" style="margin-bottom: 0.25rem; width: 100%;">
+                                                <span>Rotation Speed</span>
+                                                <span class="val-display" id="wave-rot-speed-val">1.0x</span>
+                                            </label>
+                                            <input type="range" id="wave-rot-speed" min="0.1" max="4.0" step="0.1" value="1.0" class="slider-input">
+                                        </div>
+                                    </div>
+                                    <div class="setting-group" style="margin-bottom: 0;">
+                                        <label class="setting-label-row">
+                                            <span>Waveform Scale</span>
+                                            <span class="val-display" id="wave-scale-val">1.00x</span>
+                                        </label>
+                                        <input type="range" id="wave-scale" min="0.2" max="2.5" step="0.05" value="1.0" class="slider-input">
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Tab 3: Style & Visual Effects -->
+                    <div class="tab-pane" id="tab-style">
+                        <h2 class="section-title">Atmospheric FX</h2>
+
+                        <!-- Beat Reactive Scaling -->
+                        <div class="fx-option-card">
+                            <div class="fx-header">
+                                <div class="fx-title">
+                                    <i class="fa-solid fa-compress-arrows-alt"></i>
+                                    <span>Bass Beat Reaction</span>
+                                </div>
+                                <label class="toggle-switch">
+                                    <input type="checkbox" id="fx-beat-pulse" checked>
+                                    <span class="slider"></span>
+                                </label>
+                            </div>
+                            <p class="fx-desc">Background image and particle speed dynamically scale in perfect sync with audio bass beats.</p>
+                            <div class="fx-controls" id="beat-pulse-controls">
+                                <div class="synth-control-row" style="margin-bottom: 0.75rem;">
+                                    <label class="setting-label-row" style="width: 100%;">
+                                        <span>Camera Shake Power</span>
+                                        <span class="val-display" id="beat-pulse-intensity-val">1.0x</span>
+                                    </label>
+                                    <input type="range" id="fx-beat-pulse-intensity" min="0.2" max="2.5" step="0.1" value="1.0" class="slider-input">
+                                </div>
+                                <div class="synth-control-row">
+                                    <span>Shake Direction:</span>
+                                    <select id="fx-beat-pulse-direction" class="select-input" style="width: 160px;">
+                                        <option value="omni" selected>Omni-directional</option>
+                                        <option value="horizontal">Horizontal Shift</option>
+                                        <option value="vertical">Vertical Shift</option>
+                                        <option value="zoom">Dynamic Zoom</option>
+                                    </select>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Atmospheric Particles Overlay -->
+                        <div class="fx-option-card">
+                            <div class="fx-header">
+                                <div class="fx-title">
+                                    <i class="fa-solid fa-wind"></i>
+                                    <span>Ambient Particle Field</span>
+                                </div>
+                                <label class="toggle-switch">
+                                    <input type="checkbox" id="fx-particles" checked>
+                                    <span class="slider"></span>
+                                </label>
+                            </div>
+                            <p class="fx-desc">Overlay floating stardust and solar embers that drift slowly and burst upon heavy kick beats.</p>
+                            <div class="fx-controls" id="particle-controls">
+                                <div class="synth-control-row" style="margin-bottom: 0.75rem;">
+                                    <label class="setting-label-row" style="width: 100%;">
+                                        <span>Dust Density</span>
+                                        <span class="val-display" id="particle-count-val">60</span>
+                                    </label>
+                                    <input type="range" id="particle-count" min="20" max="150" step="5" value="60" class="slider-input">
+                                </div>
+                                <div class="synth-control-row" style="margin-bottom: 0.75rem;">
+                                    <span>Theme Style:</span>
+                                    <select id="fx-particle-style" class="select-input" style="width: 200px;">
+                                        <option value="stardust" selected>Cosmic Stardust (Orbs)</option>
+                                        <option value="embers">Fire Embers (Warm Amber)</option>
+                                        <option value="rain">Matrix Rain (Neon Downpour)</option>
+                                    </select>
+                                </div>
+                                <div class="synth-control-row" style="margin-bottom: 0.75rem;">
+                                    <label class="setting-label-row" style="width: 100%;">
+                                        <span>Particle Size</span>
+                                        <span class="val-display" id="particle-size-val">3px</span>
+                                    </label>
+                                    <input type="range" id="particle-size" min="1" max="8" step="0.5" value="3" class="slider-input">
+                                </div>
+                                <div class="synth-control-row">
+                                    <label class="setting-label-row" style="width: 100%;">
+                                        <span>Float Speed</span>
+                                        <span class="val-display" id="particle-speed-val">1.5x</span>
+                                    </label>
+                                    <input type="range" id="particle-speed" min="0.2" max="5.0" step="0.1" value="1.5" class="slider-input">
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Vignette Filter -->
+                        <div class="fx-option-card">
+                            <div class="fx-header">
+                                <div class="fx-title">
+                                    <i class="fa-solid fa-circle"></i>
+                                    <span>Cinematic Vignette</span>
+                                </div>
+                                <label class="toggle-switch">
+                                    <input type="checkbox" id="fx-vignette" checked>
+                                    <span class="slider"></span>
+                                </label>
+                            </div>
+                            <p class="fx-desc">Applies soft, dark atmospheric shading around video borders to isolate centered visual elements.</p>
+                            <div class="fx-controls" id="vignette-controls">
+                                <div class="synth-control-row" style="margin-bottom: 0.75rem;">
+                                    <label class="setting-label-row" style="width: 100%;">
+                                        <span>Shading Strength</span>
+                                        <span class="val-display" id="vignette-strength-val">0.70</span>
+                                    </label>
+                                    <input type="range" id="fx-vignette-strength" min="0.2" max="1.0" step="0.05" value="0.7" class="slider-input">
+                                </div>
+                                <div class="synth-control-row" style="align-items: flex-end;">
+                                    <div style="flex: 1; margin-right: 0.75rem;">
+                                        <label class="setting-label-row" style="margin-bottom: 0.25rem;">
+                                            <span>Vignette Radius</span>
+                                            <span class="val-display" id="vignette-radius-val">60%</span>
+                                        </label>
+                                        <input type="range" id="fx-vignette-radius" min="0.2" max="1.5" step="0.05" value="0.6" class="slider-input">
+                                    </div>
+                                    <div style="width: 80px; flex-shrink: 0;">
+                                        <span style="font-size: 0.7rem; font-weight: 600; color: var(--text-secondary); text-transform: uppercase; display: block; margin-bottom: 0.25rem;">Color</span>
+                                        <input type="color" id="fx-vignette-color" value="#000000" class="color-circle-input" style="height: 34px; padding: 0;">
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Watery Ripple Effect -->
+                        <div class="fx-option-card">
+                            <div class="fx-header">
+                                <div class="fx-title">
+                                    <i class="fa-solid fa-water"></i>
+                                    <span>Watery Ripple Distortion</span>
+                                </div>
+                                <label class="toggle-switch">
+                                    <input type="checkbox" id="fx-water-ripple">
+                                    <span class="slider"></span>
+                                </label>
+                            </div>
+                            <p class="fx-desc">Applies dynamic wave refractions across the background, making it ripple fluidly like soft water waves.</p>
+                            <div class="fx-controls" id="water-ripple-controls">
+                                <div class="synth-control-row" style="margin-bottom: 0.75rem;">
+                                    <label class="setting-label-row" style="width: 100%;">
+                                        <span>Ripple Wave Speed</span>
+                                        <span class="val-display" id="water-ripple-freq-val">0.0035</span>
+                                    </label>
+                                    <input type="range" id="fx-water-ripple-frequency" min="0.001" max="0.01" step="0.0005" value="0.0035" class="slider-input">
+                                </div>
+                                <div class="synth-control-row" style="margin-bottom: 0.75rem;">
+                                    <label class="setting-label-row" style="width: 100%;">
+                                        <span>Ripple Amplitude</span>
+                                        <span class="val-display" id="water-ripple-amp-val">15px</span>
+                                    </label>
+                                    <input type="range" id="fx-water-ripple-amplitude" min="2" max="35" step="1" value="15" class="slider-input">
+                                </div>
+                                <div class="synth-control-row" style="margin-bottom: 0.75rem;">
+                                    <label class="setting-label-row" style="width: 100%;">
+                                        <span>Ripple Density</span>
+                                        <span class="val-display" id="water-ripple-density-val">0.0060</span>
+                                    </label>
+                                    <input type="range" id="fx-water-ripple-density" min="0.002" max="0.015" step="0.0005" value="0.006" class="slider-input">
+                                </div>
+                                <div class="synth-control-row">
+                                    <span>Ripple Direction:</span>
+                                    <select id="fx-water-ripple-direction" class="select-input" style="width: 160px;">
+                                        <option value="horizontal" selected>Horizontal</option>
+                                        <option value="vertical">Vertical</option>
+                                        <option value="dual">Dual (Cross-Grid)</option>
+                                    </select>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Retro CRT Monitor Overlay -->
+                        <div class="fx-option-card">
+                            <div class="fx-header">
+                                <div class="fx-title">
+                                    <i class="fa-solid fa-tv"></i>
+                                    <span>Retro CRT Scanlines Overlay</span>
+                                </div>
+                                <label class="toggle-switch">
+                                    <input type="checkbox" id="fx-crt">
+                                    <span class="slider"></span>
+                                </label>
+                            </div>
+                            <p class="fx-desc">Overlay horizontal scanlines, phosphor glow, screen warping, and soft CRT retro filter framing.</p>
+                            <div class="fx-controls" id="crt-controls">
+                                <div class="synth-control-row" style="margin-bottom: 0.75rem;">
+                                    <label class="setting-label-row" style="width: 100%;">
+                                        <span>Scanline Opacity</span>
+                                        <span class="val-display" id="crt-opacity-val">0.12</span>
+                                    </label>
+                                    <input type="range" id="fx-crt-opacity" min="0.04" max="0.35" step="0.02" value="0.12" class="slider-input">
+                                </div>
+                                <div class="synth-control-row" style="margin-bottom: 0.75rem;">
+                                    <label class="setting-label-row" style="width: 100%;">
+                                        <span>Line Thickness</span>
+                                        <span class="val-display" id="crt-thickness-val">6px</span>
+                                    </label>
+                                    <input type="range" id="fx-crt-thickness" min="2" max="18" step="1" value="6" class="slider-input">
+                                </div>
+                                <div class="synth-control-row" style="margin-bottom: 0.75rem;">
+                                    <label class="setting-label-row" style="width: 100%;">
+                                        <span>Scanline Roll Speed</span>
+                                        <span class="val-display" id="crt-roll-speed-val">0.0x</span>
+                                    </label>
+                                    <input type="range" id="fx-crt-roll-speed" min="0.0" max="5.0" step="0.5" value="0.0" class="slider-input">
+                                </div>
+                                <div class="synth-control-row" style="margin-bottom: 0.75rem;">
+                                    <label class="setting-label-row" style="width: 100%;">
+                                        <span>Phosphor Noise Grain</span>
+                                        <span class="val-display" id="crt-grain-val">5%</span>
+                                    </label>
+                                    <input type="range" id="fx-crt-grain" min="0.0" max="0.2" step="0.02" value="0.05" class="slider-input">
+                                </div>
+                                <div class="synth-control-row" style="align-items: center; justify-content: space-between;">
+                                    <span>Phosphor Flicker Effect</span>
+                                    <label class="toggle-switch">
+                                        <input type="checkbox" id="fx-crt-flicker" checked>
+                                        <span class="slider"></span>
+                                    </label>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Cinematic Camera Drift -->
+                        <div class="fx-option-card">
+                            <div class="fx-header">
+                                <div class="fx-title">
+                                    <i class="fa-solid fa-compass"></i>
+                                    <span>Cinematic Camera Drift</span>
+                                </div>
+                                <label class="toggle-switch">
+                                    <input type="checkbox" id="fx-camera-drift" checked>
+                                    <span class="slider"></span>
+                                </label>
+                            </div>
+                            <p class="fx-desc">Applies slow, continuous, organic panning and zoom drift to the background, creating a soothing parallax camera motion.</p>
+                            <div class="fx-controls" id="camera-drift-controls">
+                                <div class="synth-control-row" style="margin-bottom: 0.75rem;">
+                                    <label class="setting-label-row" style="width: 100%;">
+                                        <span>Drift Float Speed</span>
+                                        <span class="val-display" id="camera-drift-speed-val">1.0x</span>
+                                    </label>
+                                    <input type="range" id="fx-camera-drift-speed" min="0.1" max="3.0" step="0.1" value="1.0" class="slider-input">
+                                </div>
+                                <div class="synth-control-row" style="margin-bottom: 0.75rem;">
+                                    <label class="setting-label-row" style="width: 100%;">
+                                        <span>Drift Amplitude</span>
+                                        <span class="val-display" id="camera-drift-amplitude-val">60px</span>
+                                    </label>
+                                    <input type="range" id="fx-camera-drift-amplitude" min="10" max="150" step="5" value="60" class="slider-input">
+                                </div>
+                                <div class="synth-control-row">
+                                    <label class="setting-label-row" style="width: 100%;">
+                                        <span>Camera Zoom Cushion</span>
+                                        <span class="val-display" id="camera-drift-zoom-val">1.10x</span>
+                                    </label>
+                                    <input type="range" id="fx-camera-drift-zoom" min="1.01" max="1.25" step="0.01" value="1.10" class="slider-input">
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Color Filter Overlays -->
+                        <div class="setting-group" style="margin-top: 1.5rem;">
+                            <label class="setting-label">Cinema Color Grading</label>
+                            <select id="fx-color-grading" class="select-input">
+                                <option value="none">Raw Natural Colors (None)</option>
+                                <option value="cyberpunk">Cyberpunk Neon (Cyan & Purple)</option>
+                                <option value="vintage">Warm Retro Film (Vintage Amber)</option>
+                                <option value="mono">Deep Obsidian (High Contrast B&W)</option>
+                                <option value="aesthetic">Vaporwave Dream (Pastel Glow)</option>
+                            </select>
+                        </div>
+                    </div>
+
+                    <!-- Tab 4: Typography Card Overlay -->
+                    <div class="tab-pane" id="tab-text">
+                        <h2 class="section-title">Track Information</h2>
+
+                        <!-- Text Toggle -->
+                        <div class="fx-option-card" style="margin-bottom: 1.25rem;">
+                            <div class="fx-header">
+                                <div class="fx-title">
+                                    <i class="fa-solid fa-heading"></i>
+                                    <span>Enable Typography Overlay</span>
+                                </div>
+                                <label class="toggle-switch">
+                                    <input type="checkbox" id="text-enabled" checked>
+                                    <span class="slider"></span>
+                                </label>
+                            </div>
+                        </div>
+
+                        <div id="text-controls-section">
+                            <!-- Title Input -->
+                            <div class="setting-group">
+                                <label class="setting-label">Title Text</label>
+                                <input type="text" id="track-title" class="text-input" placeholder="e.g. Midnight Horizon" value="Midnight Horizon">
+                            </div>
+
+                            <!-- Subtitle Input -->
+                            <div class="setting-group">
+                                <label class="setting-label">Subtext / Artist</label>
+                                <input type="text" id="track-artist" class="text-input" placeholder="e.g. Lofi Producer" value="Neon Dreamer">
+                            </div>
+
+                            <!-- Font selector -->
+                            <div class="setting-group">
+                                <label class="setting-label">Typography Style</label>
+                                <select id="font-family" class="select-input">
+                                    <option value="Outfit" selected>Outfit (Clean Futuristic)</option>
+                                    <option value="Space Grotesk">Space Grotesk (Tech Geometric)</option>
+                                    <option value="Montserrat">Montserrat (Bold Classic)</option>
+                                    <option value="Playfair Display">Playfair Display (Classy Editorial)</option>
+                                    <option value="Inter">Inter (Sleek Minimalist)</option>
+                                </select>
+                            </div>
+
+                            <!-- Font size & color -->
+                            <div class="setting-group-row">
+                                <div class="setting-group" style="flex: 1;">
+                                    <label class="setting-label-row">
+                                        <span>Font Size</span>
+                                        <span class="val-display" id="fontsize-val">48px</span>
+                                    </label>
+                                    <input type="range" id="font-size" min="20" max="80" step="2" value="48" class="slider-input">
+                                </div>
+                                <div class="setting-group" style="width: 80px; flex-shrink: 0;">
+                                    <label class="setting-label">Color</label>
+                                    <input type="color" id="font-color" value="#ffffff" class="color-circle-input">
+                                </div>
+                            </div>
+
+                            <div class="setting-group">
+                                <label class="setting-label">Text Position</label>
+                                <select id="text-position" class="select-input">
+                                    <option value="center">Perfect Centered</option>
+                                    <option value="top">Top Header (Third)</option>
+                                    <option value="bottom">Lower Third (Bottom)</option>
+                                    <option value="custom">Drag Custom Placement</option>
+                                </select>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Center/Right Viewport & Render Terminal -->
+            <section class="viewport-area">
+                
+                <!-- Main Canvas Preview Screen -->
+                <div class="viewport-card glass-card">
+                    <div class="viewport-header">
+                        <div class="video-info">
+                            <span class="resolution-indicator" id="res-badge">1920 x 1080 | 16:9 Landscape</span>
+                            <span class="fps-indicator">30 FPS</span>
+                        </div>
+                        <div class="viewport-toggles">
+                            <button class="aspect-btn active" id="btn-landscape" title="YouTube Landscape (16:9)">
+                                <i class="fa-solid fa-rectangle-ad"></i> Landscape
+                            </button>
+                            <button class="aspect-btn" id="btn-portrait" title="YouTube Shorts (9:16)">
+                                <i class="fa-solid fa-mobile-screen-button"></i> Shorts
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- Visualizer Canvas Container -->
+                    <div class="canvas-wrapper landscape-ratio" id="canvas-container">
+                        <!-- Main Canvas -->
+                        <canvas id="visualizer-canvas"></canvas>
+                        
+                        <!-- Overlay controls for hover play/pause -->
+                        <div class="canvas-overlay">
+                            <button class="play-overlay-btn" id="overlay-play-btn">
+                                <i class="fa-solid fa-play"></i>
+                            </button>
+                        </div>
+
+                        <!-- Canvas Loading Banner -->
+                        <div class="canvas-loading" id="canvas-loader">
+                            <div class="spinner"></div>
+                            <span id="loader-message">Synthesizing audio track...</span>
+                        </div>
+                    </div>
+
+                    <!-- Custom Player Controls bar -->
+                    <div class="player-controls">
+                        <button class="control-btn" id="btn-play" title="Play / Pause">
+                            <i class="fa-solid fa-play"></i>
+                        </button>
+                        <div class="time-display" id="time-curr">0:00</div>
+                        <div class="progress-bar-container" id="player-progress-container">
+                            <div class="progress-bar" id="player-progress"></div>
+                        </div>
+                        <div class="time-display" id="time-total">0:00</div>
+                        <div class="volume-container">
+                            <i class="fa-solid fa-volume-high" id="volume-icon"></i>
+                            <input type="range" id="volume-control" min="0" max="1" step="0.05" value="0.7">
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Export & Compiling Panel (Glass Card) -->
+                <div class="export-panel glass-card">
+                    <div class="export-header-row" style="margin-bottom: 1.25rem;">
+                        <h2 class="section-title" style="margin: 0;"><i class="fa-solid fa-server text-glow-blue"></i> Server Render Video</h2>
+                        <span class="version-badge">FFmpeg H.264 / AAC</span>
+                    </div>
+
+                    <div style="background: rgba(255, 255, 255, 0.03); border: 1px solid rgba(255, 255, 255, 0.06); padding: 1rem; border-radius: 12px; margin-bottom: 1.5rem;">
+                        <p style="font-size: 0.85rem; line-height: 1.5; color: var(--text-secondary); margin: 0;">
+                            Your visualizer is built using high-performance server-side FFmpeg compilers. 
+                            This encodes a standard-compliant, highly compatible <strong>H.264 MP4 with AAC audio</strong> at visually lossless quality, guaranteed to play flawlessly on Windows Media Player, macOS, iOS, Android, and social media.
+                        </p>
+                    </div>
+
+                    <!-- Rendering trigger action button -->
+                    <button class="render-trigger-btn" id="btn-export">
+                        <i class="fa-solid fa-film"></i> Compile & Download Visual Video
+                    </button>
+                </div>
+            </section>
+        </main>
+    </div>
+
+    <!-- Glowing Rendering Progress Modal Overlay -->
+    <div class="modal-overlay" id="render-modal">
+        <div class="render-modal-card glass-card">
+            <div class="modal-glowing-ring">
+                <i class="fa-solid fa-circle-notch spinner-ring"></i>
+                <div class="progress-percent" id="render-percent">0%</div>
+            </div>
+            <h3 class="modal-title" id="render-modal-title">Compiling Video Track</h3>
+            <p class="modal-subtitle" id="render-modal-sub">Reticulating splines, preparing audio analysis...</p>
+            
+            <div class="modal-progressbar-track">
+                <div class="modal-progressbar-fill" id="render-progressbar"></div>
+            </div>
+            
+            <div class="modal-details" id="render-details-log" style="font-family: 'Courier New', Courier, monospace; font-size: 0.8rem; color: #ef4444; background: rgba(239, 68, 68, 0.06); border: 1px solid rgba(239, 68, 68, 0.25); border-radius: 8px; padding: 0.75rem 1rem; text-shadow: 0 0 6px rgba(239, 68, 68, 0.65); box-shadow: inset 0 0 10px rgba(239, 68, 68, 0.05); margin-top: 1rem; width: 100%; box-sizing: border-box; text-align: center; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; letter-spacing: 0.5px; font-weight: 600; min-height: 42px; display: flex; align-items: center; justify-content: center;">
+                FFmpeg active | Running for 12 seconds...
+            </div>
+            
+            <button class="modal-cancel-btn" id="btn-cancel-render">Cancel Export</button>
+            <button class="modal-success-btn" id="btn-download-export" style="display: none;">
+                <i class="fa-solid fa-download"></i> Download Video File
+            </button>
+        </div>
+    </div>
+
+    <!-- Load JavaScript files -->
+    <script src="/static/js/presets.js"></script>
+    <script src="/static/js/core.js"></script>
+    <script src="/static/js/synth.js"></script>
+    <script src="/static/js/visualizer.js"></script>
+    <script src="/static/js/interaction.js"></script>
+    <script src="/static/js/export.js"></script>
+</body>
+</html>
+
