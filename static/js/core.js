@@ -74,9 +74,11 @@ const state = {
         beatPulseDirection: 'omni', // omni, horizontal, vertical, zoom
         particles: false,
         particleCount: 60,
-        particleStyle: 'stardust', // stardust, embers, rain
+        particleStyle: 'stardust', // stardust, embers, rain, pixels, ascii
         particleSize: 3,
         particleSpeed: 1.5,
+        particleColor: '#00ffff',
+        particleOpacity: 0.9,
         vignette: false,
         vignetteStrength: 0.70,
         vignetteColor: '#000000',
@@ -246,6 +248,11 @@ document.addEventListener('DOMContentLoaded', () => {
     elements.particleSizeVal = document.getElementById('particle-size-val');
     elements.particleSpeed = document.getElementById('particle-speed');
     elements.particleSpeedVal = document.getElementById('particle-speed-val');
+    elements.pixelColorRow = document.getElementById('pixel-color-row');
+    elements.pixelOpacityRow = document.getElementById('pixel-opacity-row');
+    elements.particlePixelColor = document.getElementById('particle-pixel-color');
+    elements.particlePixelOpacity = document.getElementById('particle-pixel-opacity');
+    elements.particlePixelOpacityVal = document.getElementById('particle-pixel-opacity-val');
     
     elements.fxVignette = document.getElementById('fx-vignette');
     elements.vignetteControls = document.getElementById('vignette-controls');
@@ -769,6 +776,25 @@ document.addEventListener('DOMContentLoaded', () => {
     if (elements.fxParticleStyle) {
         elements.fxParticleStyle.addEventListener('change', (e) => {
             state.fx.particleStyle = e.target.value;
+            const showPixelControls = (e.target.value === 'pixels' || e.target.value === 'ascii');
+            if (elements.pixelColorRow) elements.pixelColorRow.style.display = showPixelControls ? '' : 'none';
+            if (elements.pixelOpacityRow) elements.pixelOpacityRow.style.display = showPixelControls ? '' : 'none';
+            setupParticles();
+            triggerRedraw();
+        });
+    }
+    if (elements.particlePixelColor) {
+        elements.particlePixelColor.addEventListener('input', (e) => {
+            state.fx.particleColor = e.target.value;
+            setupParticles();
+            triggerRedraw();
+        });
+    }
+    if (elements.particlePixelOpacity) {
+        elements.particlePixelOpacity.addEventListener('input', (e) => {
+            const val = parseInt(e.target.value);
+            state.fx.particleOpacity = val / 100;
+            elements.particlePixelOpacityVal.innerText = `${val}%`;
             setupParticles();
             triggerRedraw();
         });

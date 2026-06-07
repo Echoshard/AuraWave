@@ -1,5 +1,14 @@
 /* AuraWave Engine - GPU Canvas & Server-Side FFmpeg Compiler Export Logic */
 
+// MessageChannel yield: not throttled by browser background-tab setTimeout clamping
+function yieldToEventLoop() {
+    return new Promise(resolve => {
+        const { port1, port2 } = new MessageChannel();
+        port1.onmessage = resolve;
+        port2.postMessage(null);
+    });
+}
+
 document.addEventListener('DOMContentLoaded', () => {
     // Force GPU viewport capture remux method
     state.export.method = 'client';
@@ -362,9 +371,9 @@ async function runClientSideExport() {
             codec: 'vp09.00.10.08',
             width: videoWidth,
             height: videoHeight,
-            bitrate: 10000000, // 10 Mbps for visually lossless visualizer
+            bitrate: 4000000, // 4 Mbps — H.264 CRF 18 remux determines final quality
             framerate: 30,
-            latencyMode: 'realtime'
+            latencyMode: 'quality'
         });
     } catch (err) {
         console.error("Failed to initialize WebCodecs:", err);
@@ -414,13 +423,16 @@ async function runClientSideExport() {
             videoEncoder.encode(frame);
             frame.close();
             
-            // Prevent frame queue overflows
+            // Prevent frame queue overflows — yield without background-tab throttling
             if (videoEncoder.encodeQueueSize > 15) {
                 while (videoEncoder.encodeQueueSize > 8) {
                     if (isCancelled) break;
-                    await new Promise(r => setTimeout(r, 4));
+                    await yieldToEventLoop();
                 }
             }
+
+            // Yield every 10 frames to keep the tab responsive without throttling
+            if (f % 10 === 0) await yieldToEventLoop();
             
             // Update UI percent (first 95% of compilation)
             const pct = Math.min(Math.floor((f / totalFrames) * 95), 95);

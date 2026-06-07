@@ -7,7 +7,7 @@
     <!-- Google Fonts -->
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Outfit:wght@400;500;600;700;800&family=Montserrat:wght@400;600;800&family=Playfair+Display:ital,wght@0,700;1,400&family=Space+Grotesk:wght@500;700&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Outfit:wght@400;500;600;700;800&family=Montserrat:wght@400;600;800&family=Playfair+Display:ital,wght@0,700;1,400&family=Space+Grotesk:wght@500;700&family=Poppins:wght@400;500;600;700&family=Bebas+Neue&family=Lobster&family=Anton&family=Righteous&family=Permanent+Marker&family=Pacifico&family=Bungee&family=Fredoka+One&family=Cinzel:wght@700&family=Oswald:wght@500;700&display=swap" rel="stylesheet">
     <!-- FontAwesome for Premium Icons -->
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <!-- Custom Stylesheet -->
@@ -25,14 +25,25 @@
                 <i class="fa-solid fa-wand-magic-sparkles logo-icon"></i>
                 <span class="logo-text">Aura<span>Wave</span></span>
             </div>
+            <div class="header-modes">
+                <button class="mode-btn active" id="btn-mode-visualizer">
+                    <i class="fa-solid fa-music"></i> Visualizer
+                </button>
+                <button class="mode-btn" id="btn-mode-combiner">
+                    <i class="fa-solid fa-film"></i> Video Combiner
+                </button>
+                <button class="mode-btn" id="btn-mode-thumbnail">
+                    <i class="fa-solid fa-image"></i> Thumbnail Maker
+                </button>
+            </div>
             <div class="header-badges">
                 <span class="badge"><i class="fa-solid fa-bolt"></i> GPU Accelerated</span>
                 <span class="badge secondary"><i class="fa-solid fa-server"></i> Server-side FFmpeg</span>
             </div>
         </header>
 
-        <!-- Main Layout Grid -->
-        <main class="app-workspace">
+        <!-- Main Layout Grid (Visualizer Mode) -->
+        <main class="app-workspace" id="visualizer-workspace">
             
             <!-- Left Panel: Controls & Visual Customizer -->
             <section class="control-panel glass-card">
@@ -603,6 +614,8 @@
                                         <option value="stardust" selected>Cosmic Stardust (Orbs)</option>
                                         <option value="embers">Fire Embers (Warm Amber)</option>
                                         <option value="rain">Matrix Rain (Neon Downpour)</option>
+                                        <option value="pixels">Pixel Rise (Retro Squares)</option>
+                                        <option value="ascii">ASCII Matrix (Code Rain)</option>
                                     </select>
                                 </div>
                                 <div class="synth-control-row" style="margin-bottom: 0.75rem;">
@@ -610,14 +623,25 @@
                                         <span>Particle Size</span>
                                         <span class="val-display" id="particle-size-val">3px</span>
                                     </label>
-                                    <input type="range" id="particle-size" min="1" max="8" step="0.5" value="3" class="slider-input">
+                                    <input type="range" id="particle-size" min="1" max="20" step="0.5" value="3" class="slider-input">
                                 </div>
-                                <div class="synth-control-row">
+                                <div class="synth-control-row" style="margin-bottom: 0.75rem;">
                                     <label class="setting-label-row" style="width: 100%;">
                                         <span>Float Speed</span>
                                         <span class="val-display" id="particle-speed-val">1.5x</span>
                                     </label>
                                     <input type="range" id="particle-speed" min="0.2" max="5.0" step="0.1" value="1.5" class="slider-input">
+                                </div>
+                                <div class="synth-control-row" id="pixel-color-row" style="margin-bottom: 0.75rem; display: none;">
+                                    <span style="flex: 1;">Pixel Color</span>
+                                    <input type="color" id="particle-pixel-color" value="#00ffff" class="color-circle-input" style="height: 32px; width: 32px; padding: 0;">
+                                </div>
+                                <div class="synth-control-row" id="pixel-opacity-row" style="display: none;">
+                                    <label class="setting-label-row" style="width: 100%;">
+                                        <span>Pixel Opacity</span>
+                                        <span class="val-display" id="particle-pixel-opacity-val">90%</span>
+                                    </label>
+                                    <input type="range" id="particle-pixel-opacity" min="5" max="100" step="5" value="90" class="slider-input">
                                 </div>
                             </div>
                         </div>
@@ -995,6 +1019,489 @@
                 </div>
             </section>
         </main>
+
+        <!-- Main Layout Grid (Video Combiner Mode) -->
+        <main class="app-workspace" id="combiner-workspace" style="display: none;">
+            <!-- Left Panel: Controls & Options -->
+            <section class="control-panel glass-card">
+                <div class="panel-content" style="overflow-y: auto; height: 100%;">
+                    <h2 class="section-title"><i class="fa-solid fa-sliders"></i> Combiner Options</h2>
+                    
+                    <!-- Dropzone for videos -->
+                    <div class="setting-group">
+                        <label class="setting-label">Add Video Clips</label>
+                        <div class="dropzone" id="combiner-dropzone">
+                            <i class="fa-solid fa-cloud-arrow-up dropzone-icon"></i>
+                            <span class="dropzone-text">Drag & drop videos, or click to browse</span>
+                            <span class="dropzone-sub">Supports MP4, WEBM, MOV (Max 100MB per clip)</span>
+                            <input type="file" id="combiner-input" accept="video/*" class="file-input" multiple>
+                        </div>
+                    </div>
+
+                    <!-- List of added clips -->
+                    <div class="setting-group">
+                        <label class="setting-label">Video Clips Queue</label>
+                        <div class="combiner-list" id="combiner-file-list">
+                            <!-- Populated dynamically via JS -->
+                            <div class="empty-combiner-msg">
+                                <i class="fa-solid fa-film" style="font-size: 1.5rem; color: var(--text-muted); margin-bottom: 0.5rem; display: block;"></i>
+                                No videos added yet. Upload clips above to start.
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Transition settings -->
+                    <div class="setting-group" style="border-top: 1px solid rgba(255, 255, 255, 0.05); padding-top: 1.25rem; margin-top: 1.5rem;">
+                        <label class="setting-label">Transition Settings</label>
+                        
+                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
+                            <span style="font-size: 0.85rem; font-weight: 500; color: var(--text-secondary);">Crossfade Video</span>
+                            <label class="toggle-switch">
+                                <input type="checkbox" id="combiner-xfade-video" checked>
+                                <span class="slider"></span>
+                            </label>
+                        </div>
+
+                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
+                            <span style="font-size: 0.85rem; font-weight: 500; color: var(--text-secondary);">Crossfade Audio</span>
+                            <label class="toggle-switch">
+                                <input type="checkbox" id="combiner-xfade-audio" checked>
+                                <span class="slider"></span>
+                            </label>
+                        </div>
+
+                        <div class="setting-group" id="combiner-duration-group" style="margin-bottom: 0;">
+                            <label class="setting-label-row">
+                                <span>Transition Duration</span>
+                                <span class="val-display" id="combiner-duration-val">1.0s</span>
+                            </label>
+                            <input type="range" id="combiner-duration" min="0.1" max="5.0" step="0.1" value="1.0" class="slider-input">
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Right Column: Storyboard & Export -->
+            <section class="viewport-area">
+                <!-- Storyboard Panel -->
+                <div class="viewport-card glass-card" style="padding: 1.5rem; display: flex; flex-direction: column; min-height: 400px; justify-content: space-between;">
+                    <div>
+                        <div class="viewport-header" style="margin-bottom: 1.5rem; border-bottom: 1px solid rgba(255, 255, 255, 0.05); padding-bottom: 0.75rem;">
+                            <h2 class="section-title" style="margin: 0;"><i class="fa-solid fa-rectangle-list text-glow-blue"></i> Storyboard Timeline</h2>
+                            <span class="resolution-indicator" style="background: rgba(6, 182, 212, 0.1); border-color: rgba(6, 182, 212, 0.2); color: #67e8f9;">Sequence View</span>
+                        </div>
+                        
+                        <!-- Timeline representation -->
+                        <div class="storyboard-timeline" id="combiner-storyboard">
+                            <!-- Rendered dynamically -->
+                            <div style="text-align: center; color: var(--text-muted); padding: 4rem 1rem;">
+                                <i class="fa-solid fa-film" style="font-size: 3rem; margin-bottom: 1rem; color: rgba(255,255,255,0.05);"></i>
+                                <p style="font-size: 0.9rem;">Add clips to see your video timeline sequence.</p>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div style="background: rgba(255, 255, 255, 0.02); border: 1px solid rgba(255, 255, 255, 0.04); padding: 1rem; border-radius: 12px; margin-top: 2rem;">
+                        <span style="font-size: 0.75rem; font-weight: 700; text-transform: uppercase; color: var(--text-secondary); display: block; margin-bottom: 0.25rem;">Total Combined Duration</span>
+                        <div style="font-size: 1.75rem; font-weight: 800; font-family: 'Outfit', sans-serif; color: var(--accent-cyan);" id="combiner-total-duration">0:00</div>
+                    </div>
+                </div>
+
+                <!-- Export Panel -->
+                <div class="export-panel glass-card">
+                    <div class="export-header-row" style="margin-bottom: 1.25rem;">
+                        <h2 class="section-title" style="margin: 0;"><i class="fa-solid fa-server text-glow-blue"></i> Server Merge Videos</h2>
+                        <span class="version-badge">FFmpeg xfade / acrossfade</span>
+                    </div>
+
+                    <div style="background: rgba(255, 255, 255, 0.03); border: 1px solid rgba(255, 255, 255, 0.06); padding: 1rem; border-radius: 12px; margin-bottom: 1.5rem;">
+                        <p style="font-size: 0.85rem; line-height: 1.5; color: var(--text-secondary); margin: 0;">
+                            Merging and blending videos is handled server-side. Each clip will be automatically pre-formatted and scaled to a matching 1080p output at 30 FPS, ensuring transitions run beautifully without rendering errors.
+                        </p>
+                    </div>
+
+                    <button class="render-trigger-btn" id="btn-combiner-merge" disabled>
+                        <i class="fa-solid fa-circle-play"></i> Compile & Merge Videos
+                    </button>
+                </div>
+            </section>
+        </main>
+
+        <!-- Main Layout Grid (Thumbnail Maker Mode) -->
+        <main class="app-workspace" id="thumbnail-workspace" style="display: none;">
+            <!-- Left Panel: Controls & Options -->
+            <section class="control-panel glass-card">
+                <div class="panel-content" style="overflow-y: auto; height: 100%;">
+                    <h2 class="section-title"><i class="fa-solid fa-wand-magic-sparkles text-glow-blue"></i> Thumbnail Designer</h2>
+                    
+                    <!-- Background settings -->
+                    <div class="fx-option-card">
+                        <div class="fx-header">
+                            <div class="fx-title">
+                                <i class="fa-solid fa-image" style="color: var(--accent-cyan);"></i>
+                                <span>Background Settings</span>
+                            </div>
+                        </div>
+                        <div class="fx-controls-flat">
+                            <div class="setting-group">
+                                <label class="setting-label">Background Source</label>
+                                <select id="thumb-bg-source" class="select-input">
+                                    <option value="gradient" selected>Preset Gradient</option>
+                                    <option value="custom-gradient">Custom Gradient</option>
+                                    <option value="custom-solid">Custom Solid Color</option>
+                                    <option value="image">Upload Custom Image</option>
+                                    <option value="sync">Sync from Visualizer</option>
+                                </select>
+                            </div>
+
+                            <!-- Sync Warning/Info -->
+                            <div class="setting-group" id="thumb-sync-info" style="display: none;">
+                                <p class="fx-desc" style="color: #a5b4fc; background: rgba(99, 102, 241, 0.1); border: 1px solid rgba(99, 102, 241, 0.2); padding: 0.5rem; border-radius: 6px; margin: 0;">
+                                    <i class="fa-solid fa-circle-info"></i> Automatically syncs background gradient or image from Visualizer workspace.
+                                </p>
+                            </div>
+
+                            <!-- Preset Gradient List -->
+                            <div class="setting-group" id="thumb-bg-presets-group">
+                                <label class="setting-label">Select Gradient Preset</label>
+                                <div class="gradient-grid" id="thumb-gradient-presets" style="max-height: 120px; overflow-y: auto;">
+                                    <!-- Populated dynamically via JS -->
+                                </div>
+                            </div>
+
+                            <!-- Custom Solid Color -->
+                            <div class="setting-group" id="thumb-solid-color-group" style="display: none;">
+                                <div class="custom-color-input-row" style="display: flex; align-items: center; gap: 0.75rem;">
+                                    <input type="color" id="thumb-bg-solid-color" value="#0f172a" class="color-circle-input">
+                                    <span style="font-size: 0.85rem; font-weight: 500; color: var(--text-secondary);">Background Color</span>
+                                </div>
+                            </div>
+
+                            <!-- Custom Gradient -->
+                            <div class="setting-group" id="thumb-custom-gradient-group" style="display: none;">
+                                <div style="display: flex; gap: 0.75rem; margin-bottom: 0.75rem;">
+                                    <div style="flex: 1;">
+                                        <label class="setting-label">Color 1</label>
+                                        <input type="color" id="thumb-bg-grad-c1" value="#4f46e5" style="width: 100%; height: 32px; border-radius: 6px; border: 1px solid rgba(255,255,255,0.1); background: none; cursor: pointer;">
+                                    </div>
+                                    <div style="flex: 1;">
+                                        <label class="setting-label">Color 2</label>
+                                        <input type="color" id="thumb-bg-grad-c2" value="#06b6d4" style="width: 100%; height: 32px; border-radius: 6px; border: 1px solid rgba(255,255,255,0.1); background: none; cursor: pointer;">
+                                    </div>
+                                </div>
+                                <div class="setting-group" style="margin-bottom: 0;">
+                                    <label class="setting-label-row">
+                                        <span>Gradient Angle</span>
+                                        <span class="val-display" id="thumb-bg-grad-angle-val">135°</span>
+                                    </label>
+                                    <input type="range" id="thumb-bg-grad-angle" min="0" max="360" step="5" value="135" class="slider-input">
+                                </div>
+                            </div>
+
+                            <!-- Upload Custom Image -->
+                            <div class="setting-group" id="thumb-bg-image-group" style="display: none;">
+                                <div class="dropzone" id="thumb-bg-dropzone">
+                                    <i class="fa-solid fa-cloud-arrow-up dropzone-icon"></i>
+                                    <span class="dropzone-text">Drag & drop thumbnail background, or click to browse</span>
+                                    <span class="dropzone-sub">Supports JPG, PNG, WEBP</span>
+                                    <input type="file" id="thumb-bg-input" accept="image/*" class="file-input">
+                                </div>
+                                <div class="file-loaded-banner" id="thumb-bg-banner" style="display: none; margin-top: 0.75rem;">
+                                    <i class="fa-solid fa-circle-check success-icon"></i>
+                                    <div class="file-details">
+                                         <span class="file-name" id="thumb-bg-name">thumbnail_bg.png</span>
+                                         <span class="file-meta" id="thumb-bg-meta">1920 x 1080</span>
+                                    </div>
+                                    <button class="remove-btn" id="remove-thumb-bg-btn"><i class="fa-solid fa-trash"></i></button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Text Layers list -->
+                    <div class="setting-group" style="margin-top: 1.5rem;">
+                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.75rem;">
+                            <label class="setting-label" style="margin-bottom: 0;">Text Layers</label>
+                            <button id="btn-add-text-layer" class="action-btn" style="padding: 0.35rem 0.75rem; font-size: 0.75rem; border-radius: 6px; background: rgba(99, 102, 241, 0.15); border: 1px solid rgba(99, 102, 241, 0.35); color: #a5b4fc; cursor: pointer; display: flex; align-items: center; gap: 0.35rem; transition: all 0.2s; font-family: 'Inter', sans-serif;">
+                                <i class="fa-solid fa-plus"></i> Add Layer
+                            </button>
+                        </div>
+                        <div class="thumbnail-layers-container" id="thumbnail-layers-list">
+                            <!-- Populated dynamically via JS -->
+                        </div>
+                    </div>
+
+                    <!-- Selected Text Layer editor settings card -->
+                    <div class="fx-option-card" id="thumb-layer-editor-card" style="display: none; margin-top: 1.5rem;">
+                        <div class="fx-header" style="justify-content: space-between; align-items: center;">
+                            <div class="fx-title">
+                                <i class="fa-solid fa-font" style="color: var(--accent-cyan);"></i>
+                                <span>Layer Styling: <strong id="thumb-editor-layer-name">Text Layer 1</strong></span>
+                            </div>
+                            <button id="btn-delete-text-layer" class="combiner-action-btn danger" style="padding: 0.35rem; font-size: 0.95rem; background: none; border: none; cursor: pointer; color: var(--accent-rose);" title="Delete Layer">
+                                <i class="fa-solid fa-trash"></i>
+                            </button>
+                        </div>
+                        <div class="fx-controls-flat">
+                            <!-- Text content input -->
+                            <div class="setting-group">
+                                <label class="setting-label">Text Content</label>
+                                <input type="text" id="thumb-text-val" class="text-input" placeholder="Enter text..." style="width: 100%; box-sizing: border-box; background: rgba(0,0,0,0.3); border: 1px solid rgba(255,255,255,0.08); color: #fff; padding: 0.6rem 0.8rem; border-radius: 8px; font-family: 'Inter', sans-serif; font-size: 0.9rem;">
+                            </div>
+
+                            <!-- Font options -->
+                            <div class="setting-group-row" style="display: flex; gap: 0.75rem; align-items: flex-end; margin-bottom: 0.75rem;">
+                                <div class="setting-group" style="flex: 1.5; margin-bottom: 0;">
+                                    <label class="setting-label">Font Family</label>
+                                    <select id="thumb-font-family" class="select-input" style="width: 100%;">
+                                        <!-- Google fonts options -->
+                                        <option value="Outfit">Outfit</option>
+                                        <option value="Inter">Inter</option>
+                                        <option value="Montserrat">Montserrat</option>
+                                        <option value="Space Grotesk">Space Grotesk</option>
+                                        <option value="Playfair Display">Playfair Display</option>
+                                        <option value="Poppins">Poppins</option>
+                                        <option value="Bebas Neue">Bebas Neue (Heavy)</option>
+                                        <option value="Anton">Anton (Bold Title)</option>
+                                        <option value="Righteous">Righteous (Modern Retro)</option>
+                                        <option value="Permanent Marker">Permanent Marker</option>
+                                        <option value="Pacifico">Pacifico (Script)</option>
+                                        <option value="Bungee">Bungee (Blocky)</option>
+                                        <option value="Fredoka One">Fredoka One</option>
+                                        <option value="Cinzel">Cinzel (Classic)</option>
+                                        <option value="Oswald">Oswald</option>
+                                        <option value="Lobster">Lobster</option>
+                                    </select>
+                                </div>
+                                <div class="setting-group" style="flex: 1; margin-bottom: 0;">
+                                    <label class="setting-label-row">
+                                        <span>Size</span>
+                                        <span class="val-display" id="thumb-font-size-val">70px</span>
+                                    </label>
+                                    <input type="range" id="thumb-font-size" min="10" max="250" step="2" value="70" class="slider-input">
+                                </div>
+                            </div>
+
+                            <!-- Text styling formatting -->
+                            <div class="setting-group" style="margin-top: 1rem;">
+                                <div style="display: flex; gap: 1rem; align-items: center;">
+                                    <label style="display: flex; align-items: center; gap: 0.4rem; font-size: 0.85rem; color: var(--text-secondary); cursor: pointer;">
+                                        <input type="checkbox" id="thumb-font-bold" checked>
+                                        <span>Bold</span>
+                                    </label>
+                                    <label style="display: flex; align-items: center; gap: 0.4rem; font-size: 0.85rem; color: var(--text-secondary); cursor: pointer;">
+                                        <input type="checkbox" id="thumb-font-italic">
+                                        <span>Italic</span>
+                                    </label>
+                                    <label style="display: flex; align-items: center; gap: 0.4rem; font-size: 0.85rem; color: var(--text-secondary); cursor: pointer;">
+                                        <input type="checkbox" id="thumb-font-uppercase">
+                                        <span>ALL CAPS</span>
+                                    </label>
+                                </div>
+                            </div>
+
+                            <!-- Text Color Style (Solid or Gradient) -->
+                            <div class="setting-group" style="border-top: 1px solid rgba(255,255,255,0.06); padding-top: 1rem; margin-top: 1rem;">
+                                <label class="setting-label">Text Color Mode</label>
+                                <select id="thumb-text-color-mode" class="select-input">
+                                    <option value="solid" selected>Solid Color</option>
+                                    <option value="gradient">Gradient Color</option>
+                                </select>
+                            </div>
+
+                            <!-- Solid Color Picker -->
+                            <div class="setting-group" id="thumb-text-solid-color-row">
+                                <div class="custom-color-input-row" style="display: flex; align-items: center; gap: 0.75rem;">
+                                    <input type="color" id="thumb-text-color" value="#ffffff" class="color-circle-input">
+                                    <span style="font-size: 0.85rem; font-weight: 500; color: var(--text-secondary);">Solid Text Color</span>
+                                </div>
+                            </div>
+
+                            <!-- Gradient Colors Pickers -->
+                            <div id="thumb-text-gradient-row" style="display: none;">
+                                <div style="display: flex; gap: 0.75rem; margin-bottom: 0.75rem;">
+                                    <div style="flex: 1;">
+                                        <label class="setting-label">Gradient Color 1</label>
+                                        <input type="color" id="thumb-text-grad-c1" value="#f43f5e" style="width: 100%; height: 32px; border-radius: 6px; border: 1px solid rgba(255,255,255,0.1); background: none; cursor: pointer;">
+                                    </div>
+                                    <div style="flex: 1;">
+                                        <label class="setting-label">Gradient Color 2</label>
+                                        <input type="color" id="thumb-text-grad-c2" value="#fb923c" style="width: 100%; height: 32px; border-radius: 6px; border: 1px solid rgba(255,255,255,0.1); background: none; cursor: pointer;">
+                                    </div>
+                                </div>
+                                <div class="setting-group" style="margin-bottom: 0;">
+                                    <label class="setting-label-row">
+                                        <span>Gradient Angle</span>
+                                        <span class="val-display" id="thumb-text-grad-angle-val">90°</span>
+                                    </label>
+                                    <input type="range" id="thumb-text-grad-angle" min="0" max="360" step="5" value="90" class="slider-input">
+                                </div>
+                            </div>
+
+                            <!-- Neon Glow Controls -->
+                            <div class="setting-group" style="border-top: 1px solid rgba(255,255,255,0.06); padding-top: 1rem; margin-top: 1rem;">
+                                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem;">
+                                    <span style="font-size: 0.85rem; font-weight: 600; color: #a5b4fc; text-transform: uppercase;">Neon Text Glow</span>
+                                    <label class="toggle-switch">
+                                        <input type="checkbox" id="thumb-text-glow-enabled" checked>
+                                        <span class="slider"></span>
+                                    </label>
+                                </div>
+                                <p class="fx-desc" style="margin-bottom: 0.75rem;">Enable double-glowing hot neon aura effect behind text.</p>
+                                
+                                <div id="thumb-text-glow-controls" style="display: flex; flex-direction: column; gap: 0.75rem;">
+                                    <div class="custom-color-input-row" style="display: flex; align-items: center; gap: 0.75rem; margin-bottom: 0.25rem;">
+                                        <input type="color" id="thumb-text-glow-color" value="#ec4899" class="color-circle-input">
+                                        <span style="font-size: 0.85rem; font-weight: 500; color: var(--text-secondary);">Glow Color</span>
+                                    </div>
+                                    
+                                    <div class="setting-group" style="margin-bottom: 0;">
+                                        <label class="setting-label-row">
+                                            <span>Glow Radius / Spread</span>
+                                            <span class="val-display" id="thumb-text-glow-radius-val">30px</span>
+                                        </label>
+                                        <input type="range" id="thumb-text-glow-radius" min="0" max="100" step="2" value="30" class="slider-input">
+                                    </div>
+
+                                    <div class="setting-group" style="margin-bottom: 0;">
+                                        <label class="setting-label-row">
+                                            <span>Glow Intensity / Opacity</span>
+                                            <span class="val-display" id="thumb-text-glow-opacity-val">0.9</span>
+                                        </label>
+                                        <input type="range" id="thumb-text-glow-opacity" min="0.1" max="1.0" step="0.05" value="0.9" class="slider-input">
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- Position Sliders & Alignment -->
+                            <div class="setting-group" style="border-top: 1px solid rgba(255,255,255,0.06); padding-top: 1rem; margin-top: 1rem;">
+                                <label class="setting-label">Position & Alignment</label>
+                                <div style="display: flex; gap: 0.5rem; margin-bottom: 0.75rem;">
+                                    <button id="btn-thumb-align-left" class="action-btn" style="flex: 1; padding: 0.45rem; border-radius: 6px; background: rgba(255,255,255,0.02); border: 1px solid rgba(255,255,255,0.08); color: var(--text-secondary); cursor: pointer;"><i class="fa-solid fa-align-left"></i> Left</button>
+                                    <button id="btn-thumb-align-center" class="action-btn active" style="flex: 1; padding: 0.45rem; border-radius: 6px; background: rgba(99, 102, 241, 0.15); border: 1px solid rgba(99, 102, 241, 0.35); color: #a5b4fc; cursor: pointer;"><i class="fa-solid fa-align-center"></i> Center</button>
+                                    <button id="btn-thumb-align-right" class="action-btn" style="flex: 1; padding: 0.45rem; border-radius: 6px; background: rgba(255,255,255,0.02); border: 1px solid rgba(255,255,255,0.08); color: var(--text-secondary); cursor: pointer;"><i class="fa-solid fa-align-right"></i> Right</button>
+                                </div>
+                                <div style="display: flex; gap: 0.75rem; margin-bottom: 0.75rem;">
+                                    <div style="flex: 1;">
+                                        <label class="setting-label-row">
+                                            <span>Shift X</span>
+                                            <span class="val-display" id="thumb-shiftx-val">0px</span>
+                                        </label>
+                                        <input type="range" id="thumb-shiftx" min="-640" max="640" step="1" value="0" class="slider-input">
+                                    </div>
+                                    <div style="flex: 1;">
+                                        <label class="setting-label-row">
+                                            <span>Shift Y</span>
+                                            <span class="val-display" id="thumb-shifty-val">0px</span>
+                                        </label>
+                                        <input type="range" id="thumb-shifty" min="-360" max="360" step="1" value="0" class="slider-input">
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- Typography Styling Fine Tuning -->
+                            <div class="setting-group" style="border-top: 1px solid rgba(255,255,255,0.06); padding-top: 1rem; margin-top: 1rem;">
+                                <label class="setting-label">Spacing & Rotation</label>
+                                <div style="display: flex; gap: 0.75rem;">
+                                    <div style="flex: 1;">
+                                        <label class="setting-label-row">
+                                            <span>Letter Spacing</span>
+                                            <span class="val-display" id="thumb-letter-spacing-val">0px</span>
+                                        </label>
+                                        <input type="range" id="thumb-letter-spacing" min="-10" max="50" step="1" value="0" class="slider-input">
+                                    </div>
+                                    <div style="flex: 1;">
+                                        <label class="setting-label-row">
+                                            <span>Rotation</span>
+                                            <span class="val-display" id="thumb-rotation-val">0°</span>
+                                        </label>
+                                        <input type="range" id="thumb-rotation" min="-180" max="180" step="1" value="0" class="slider-input">
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- Premium Drop Shadow -->
+                            <div class="setting-group" style="border-top: 1px solid rgba(255,255,255,0.06); padding-top: 1rem; margin-top: 1rem;">
+                                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem;">
+                                    <span style="font-size: 0.85rem; font-weight: 600; color: #a5b4fc; text-transform: uppercase;">Drop Shadow</span>
+                                    <label class="toggle-switch">
+                                        <input type="checkbox" id="thumb-shadow-enabled" checked>
+                                        <span class="slider"></span>
+                                    </label>
+                                </div>
+                                <p class="fx-desc" style="margin-bottom: 0.75rem;">Add clean shadow separation behind the layer.</p>
+                                
+                                <div id="thumb-shadow-controls" style="display: flex; flex-direction: column; gap: 0.75rem;">
+                                    <div class="custom-color-input-row" style="display: flex; align-items: center; gap: 0.75rem;">
+                                        <input type="color" id="thumb-shadow-color" value="#000000" class="color-circle-input">
+                                        <span style="font-size: 0.85rem; font-weight: 500; color: var(--text-secondary);">Shadow Color</span>
+                                    </div>
+                                    <div style="display: flex; gap: 0.75rem;">
+                                        <div style="flex: 1;">
+                                            <label class="setting-label-row">
+                                                <span>Blur</span>
+                                                <span class="val-display" id="thumb-shadow-blur-val">12px</span>
+                                            </label>
+                                            <input type="range" id="thumb-shadow-blur" min="0" max="40" step="1" value="12" class="slider-input">
+                                        </div>
+                                        <div style="flex: 1;">
+                                            <label class="setting-label-row">
+                                                <span>Offset X</span>
+                                                <span class="val-display" id="thumb-shadow-offsetx-val">4px</span>
+                                            </label>
+                                            <input type="range" id="thumb-shadow-offsetx" min="-30" max="30" step="1" value="4" class="slider-input">
+                                        </div>
+                                        <div style="flex: 1;">
+                                            <label class="setting-label-row">
+                                                <span>Offset Y</span>
+                                                <span class="val-display" id="thumb-shadow-offsety-val">4px</span>
+                                            </label>
+                                            <input type="range" id="thumb-shadow-offsety" min="-30" max="30" step="1" value="4" class="slider-input">
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Right Column: Canvas Viewport & Export -->
+            <section class="viewport-area">
+                <div class="viewport-card glass-card" style="padding: 1.5rem; display: flex; flex-direction: column; min-height: 480px; justify-content: space-between;">
+                    <div>
+                        <div class="viewport-header" style="margin-bottom: 1.5rem; border-bottom: 1px solid rgba(255, 255, 255, 0.05); padding-bottom: 0.75rem;">
+                            <h2 class="section-title" style="margin: 0;"><i class="fa-solid fa-image text-glow-blue"></i> Thumbnail Preview</h2>
+                            <span class="resolution-indicator" style="background: rgba(6, 182, 212, 0.1); border-color: rgba(6, 182, 212, 0.2); color: #67e8f9;">1280 x 720 (16:9)</span>
+                        </div>
+                        
+                        <!-- Canvas container -->
+                        <div class="thumbnail-canvas-wrapper" style="position: relative; width: 100%; border-radius: 8px; overflow: hidden; border: 1px solid rgba(255,255,255,0.08); background: #000; display: flex; align-items: center; justify-content: center; box-shadow: 0 10px 30px rgba(0,0,0,0.5);">
+                            <canvas id="thumbnail-canvas" width="1280" height="720" style="width: 100%; display: block; max-height: 540px; aspect-ratio: 16/9; object-fit: contain; cursor: crosshair;"></canvas>
+                        </div>
+                        <p style="text-align: center; color: var(--text-muted); font-size: 0.8rem; margin-top: 0.75rem; margin-bottom: 0;">
+                            <i class="fa-solid fa-arrows-up-down-left-right"></i> Drag text blocks directly on the preview to position them!
+                        </p>
+                    </div>
+
+                    <!-- Export Buttons -->
+                    <div class="export-panel glass-card" style="margin-top: 1.5rem; padding: 1.25rem;">
+                        <div class="export-header-row" style="margin-bottom: 1rem;">
+                            <h2 class="section-title" style="margin: 0;"><i class="fa-solid fa-download text-glow-blue"></i> Export Thumbnail</h2>
+                            <span class="version-badge">Client-Side PNG / JPG</span>
+                        </div>
+                        <div style="display: flex; gap: 1rem;">
+                            <button class="render-trigger-btn" id="btn-thumb-download-png" style="flex: 1; margin: 0; background: linear-gradient(135deg, #6366f1 0%, #4338ca 100%);">
+                                <i class="fa-solid fa-file-image"></i> Download PNG
+                            </button>
+                            <button class="render-trigger-btn" id="btn-thumb-download-jpg" style="flex: 1; margin: 0; background: linear-gradient(135deg, #06b6d4 0%, #0891b2 100%);">
+                                <i class="fa-solid fa-file-image"></i> Download JPG
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </section>
+        </main>
     </div>
 
     <!-- Glowing Rendering Progress Modal Overlay -->
@@ -1030,6 +1537,8 @@
     <script src="/static/js/visualizer.js"></script>
     <script src="/static/js/interaction.js"></script>
     <script src="/static/js/export.js"></script>
+    <script src="/static/js/combiner.js"></script>
+    <script src="/static/js/thumbnail.js"></script>
 </body>
 </html>
 

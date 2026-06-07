@@ -29,7 +29,7 @@ os.makedirs(EXPORT_FOLDER, exist_ok=True)
 
 app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
 app.config['EXPORT_FOLDER'] = EXPORT_FOLDER
-app.config['MAX_CONTENT_LENGTH'] = 100 * 1024 * 1024  # 100 MB max limit
+app.config['MAX_CONTENT_LENGTH'] = 600 * 1024 * 1024  # 600 MB — supports ~20 min at 4 Mbps
 
 def allowed_file(filename, allowed_set):
     return '.' in filename and filename.rsplit('.', 1)[1].lower() in allowed_set
@@ -77,7 +77,7 @@ def upload_file():
             'url': f'/uploads/{unique_name}'
         }
         
-        if file_type == 'audio':
+        if file_type == 'audio' or ext in {'mp4', 'webm', 'mov'}:
             info['duration'] = get_audio_duration(save_path)
             
         logger.info(f"Uploaded {file_type} file: {file.filename} -> {unique_name}")
@@ -249,6 +249,233 @@ def remux_video():
         'status': 'processing',
         'task_id': task_id,
         'url': f'/exports/{task_id}'
+    })
+
+def probe_file(file_path):
+    """Probes a media file and returns duration and streams presence."""
+    import json
+    cmd = [
+        'ffprobe', '-v', 'quiet', '-print_format', 'json',
+        '-show_streams', '-show_format', file_path
+    ]
+    try:
+        result = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, check=True)
+        info = json.loads(result.stdout)
+        
+        has_video = False
+        has_audio = False
+        duration = 0.0
+        
+        if 'format' in info and 'duration' in info['format']:
+            try:
+                duration = float(info['format']['duration'])
+            except (ValueError, TypeError):
+                pass
+                
+        for stream in info.get('streams', []):
+            codec_type = stream.get('codec_type')
+            if codec_type == 'video':
+                has_video = True
+                if duration == 0.0 and 'duration' in stream:
+                    try:
+                        duration = float(stream['duration'])
+                    except (ValueError, TypeError):
+                        pass
+            elif codec_type == 'audio':
+                has_audio = True
+                if duration == 0.0 and 'duration' in stream:
+                    try:
+                        duration = float(stream['duration'])
+                    except (ValueError, TypeError):
+                        pass
+                        
+        return {
+            'has_video': has_video,
+            'has_audio': has_audio,
+            'duration': duration
+        }
+    except Exception as e:
+        logger.error(f"Error probing file {file_path}: {e}")
+        return {
+            'has_video': False,
+            'has_audio': False,
+            'duration': 0.0
+        }
+
+def build_combine_filter_graph(video_files_info, crossfade_duration, crossfade_video, crossfade_audio):
+    """
+    Builds the FFmpeg filter complex for combining multiple videos.
+    """
+    N = len(video_files_info)
+    filters = []
+    
+    # 1. Generate normalized streams
+    for i, info in enumerate(video_files_info):
+        d = info['duration']
+        # Video normalization: scale and pad to 1920x1080, force 30fps and format yuv420p
+        filters.append(f"[{i}:v]scale=1920:1080:force_original_aspect_ratio=decrease,pad=1920:1080:(ow-iw)/2:(oh-ih)/2,setsar=1,fps=30,format=yuv420p[v{i}_norm]")
+        
+        # Audio normalization: convert sample rate and channels. If no audio stream is present, generate silent audio.
+        if info['has_audio']:
+            filters.append(f"[{i}:a]aformat=sample_rates=44100:channel_layouts=stereo,asetpts=PTS-STARTPTS[a{i}_norm]")
+        else:
+            filters.append(f"anullsrc=r=44100:cl=stereo,atrim=0:{d},asetpts=PTS-STARTPTS[a{i}_norm]")
+            
+    # 2. Process video stream combining
+    v_last_label = "v0_norm"
+    if N > 1:
+        if crossfade_video and crossfade_duration > 0:
+            accum_dur = video_files_info[0]['duration']
+            for i in range(1, N):
+                offset = accum_dur - crossfade_duration
+                if offset < 0:
+                    offset = 0
+                v_next_label = f"vfade{i}"
+                filters.append(f"[{v_last_label}][v{i}_norm]xfade=transition=fade:duration={crossfade_duration}:offset={offset:.3f}[{v_next_label}]")
+                v_last_label = v_next_label
+                accum_dur = accum_dur + video_files_info[i]['duration'] - crossfade_duration
+        else:
+            # Simple concat
+            concat_inputs = "".join(f"[v{i}_norm]" for i in range(N))
+            filters.append(f"{concat_inputs}concat=n={N}:v=1:a=0[v_out]")
+            v_last_label = "v_out"
+            
+    # 3. Process audio stream combining
+    a_last_label = "a0_norm"
+    if N > 1:
+        if crossfade_audio and crossfade_duration > 0:
+            for i in range(1, N):
+                a_next_label = f"afade{i}"
+                filters.append(f"[{a_last_label}][a{i}_norm]acrossfade=d={crossfade_duration:.3f}[{a_next_label}]")
+                a_last_label = a_next_label
+        else:
+            # Simple concat
+            concat_inputs = "".join(f"[a{i}_norm]" for i in range(N))
+            filters.append(f"{concat_inputs}concat=n={N}:v=0:a=1[a_out]")
+            a_last_label = "a_out"
+            
+    filter_complex = ";\n".join(filters)
+    return filter_complex, v_last_label, a_last_label
+
+@app.route('/api/combine', methods=['POST'])
+def combine_videos():
+    """Combines multiple videos with xfade and acrossfade filters."""
+    data = request.json or {}
+    videos = data.get('videos', [])
+    crossfade_duration = float(data.get('crossfade_duration', 1.0))
+    crossfade_video = bool(data.get('crossfade_video', True))
+    crossfade_audio = bool(data.get('crossfade_audio', True))
+    
+    if not videos:
+        return jsonify({'error': 'At least one video is required'}), 400
+        
+    # Verify all files exist
+    video_files_info = []
+    for video_name in videos:
+        video_path = os.path.join(app.config['UPLOAD_FOLDER'], video_name)
+        if not os.path.exists(video_path):
+            return jsonify({'error': f'Video file {video_name} not found'}), 404
+        
+        # Probe file to get duration and check audio presence
+        info = probe_file(video_path)
+        if not info['has_video']:
+            return jsonify({'error': f'File {video_name} is not a valid video'}), 400
+            
+        video_files_info.append({
+            'filename': video_name,
+            'path': video_path,
+            'duration': info['duration'],
+            'has_audio': info['has_audio']
+        })
+        
+    # Limit crossfade duration if it's longer than any video
+    shortest_duration = min(info['duration'] for info in video_files_info)
+    if crossfade_duration >= shortest_duration:
+        crossfade_duration = max(0.0, shortest_duration - 0.1)
+        
+    # Generate unique output task name
+    output_filename = f"combined_{uuid.uuid4()}.mp4"
+    output_path = os.path.join(app.config['EXPORT_FOLDER'], output_filename)
+    
+    # Build the filter graph
+    filter_complex, v_out, a_out = build_combine_filter_graph(
+        video_files_info, crossfade_duration, crossfade_video, crossfade_audio
+    )
+    
+    # Build command line
+    cmd = ['ffmpeg', '-y']
+    for info in video_files_info:
+        cmd.extend(['-i', info['path']])
+        
+    cmd.extend([
+        '-filter_complex', filter_complex,
+        '-map', f'[{v_out}]',
+        '-map', f'[{a_out}]',
+        '-pix_fmt', 'yuv420p',
+        '-c:v', 'libx264',
+        '-preset', 'fast',
+        '-crf', '18',
+        '-c:a', 'aac',
+        '-b:a', '192k',
+        output_path
+    ])
+    
+    logger.info(f"Launching FFmpeg Combine: {' '.join(cmd)}")
+    
+    # Track the task in render_tasks
+    render_tasks[output_filename] = {
+        'status': 'processing',
+        'error': None,
+        'url': f'/exports/{output_filename}',
+        'last_log_line': 'FFmpeg merge process starting...'
+    }
+    
+    def process_combine(cmd_list, task_id):
+        try:
+            process = subprocess.Popen(cmd_list, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, bufsize=1)
+            
+            for line in iter(process.stdout.readline, ''):
+                line_str = line.strip()
+                if line_str:
+                    logger.info(f"FFmpeg Combine [{task_id}]: {line_str}")
+                    if any(x in line_str for x in ['frame=', 'fps=', 'time=', 'speed=', 'size=']):
+                        render_tasks[task_id]['last_log_line'] = line_str
+                    elif 'Error' in line_str or 'error' in line_str:
+                        render_tasks[task_id]['last_log_line'] = f"Warning: {line_str}"
+                        
+            process.wait()
+            
+            if process.returncode == 0:
+                logger.info(f"FFmpeg combine successful: {task_id}")
+                render_tasks[task_id] = {
+                    'status': 'completed',
+                    'url': f'/exports/{task_id}',
+                    'error': None,
+                    'last_log_line': 'Videos merged successfully!'
+                }
+            else:
+                logger.error(f"FFmpeg combine returned exit code: {process.returncode}")
+                render_tasks[task_id] = {
+                    'status': 'failed',
+                    'url': None,
+                    'error': f"FFmpeg combine failed with exit code {process.returncode}."
+                }
+        except Exception as e:
+            logger.error(f"FFmpeg combine exception: {str(e)}")
+            render_tasks[task_id] = {
+                'status': 'failed',
+                'url': None,
+                'error': str(e)
+            }
+            
+    # Start combining in background
+    thread = threading.Thread(target=process_combine, args=(cmd, output_filename))
+    thread.start()
+    
+    return jsonify({
+        'status': 'processing',
+        'task_id': output_filename,
+        'url': f'/exports/{output_filename}'
     })
 
 @app.route('/api/render', methods=['POST'])

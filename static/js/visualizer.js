@@ -291,17 +291,70 @@ function setupParticles() {
     state.visuals.particles = [];
     const canvasW = elements.visualizerCanvas.width;
     const canvasH = elements.visualizerCanvas.height;
-    
+    const style = state.fx.particleStyle || 'stardust';
+
+    const pixelPalette = [
+        `rgba(0, 255, 255, 0.95)`,
+        `rgba(255, 0, 255, 0.95)`,
+        `rgba(255, 255, 0, 0.95)`,
+        `rgba(255, 255, 255, 0.95)`,
+        `rgba(0, 255, 128, 0.95)`,
+        `rgba(255, 64, 128, 0.95)`,
+        `rgba(64, 128, 255, 0.95)`,
+    ];
+
     for (let i = 0; i < count; i++) {
-        state.visuals.particles.push({
-            x: Math.random() * canvasW,
-            y: Math.random() * canvasH,
-            size: Math.random() * state.fx.particleSize + 0.5,
-            speedY: -(Math.random() * state.fx.particleSpeed + 0.3),
-            speedX: (Math.random() - 0.5) * 0.4,
-            color: `rgba(255, 255, 255, ${Math.random() * 0.4 + 0.2})`,
-            glow: Math.random() > 0.7
-        });
+        let color, speedY, speedX, size, glow, shape;
+
+        if (style === 'embers') {
+            const r = 220 + Math.floor(Math.random() * 35);
+            const g = 60 + Math.floor(Math.random() * 90);
+            color = `rgba(${r}, ${g}, 10, ${Math.random() * 0.5 + 0.4})`;
+            speedY = -(Math.random() * state.fx.particleSpeed + 0.2);
+            speedX = (Math.random() - 0.5) * 0.9;
+            size = Math.random() * state.fx.particleSize + 0.5;
+            glow = Math.random() > 0.5;
+            shape = 'circle';
+        } else if (style === 'rain') {
+            const g = 150 + Math.floor(Math.random() * 105);
+            color = `rgba(0, ${g}, 60, ${Math.random() * 0.5 + 0.3})`;
+            speedY = Math.random() * state.fx.particleSpeed + 0.5;
+            speedX = 0;
+            size = Math.random() * state.fx.particleSize * 0.6 + 0.5;
+            glow = Math.random() > 0.6;
+            shape = 'circle';
+        } else if (style === 'pixels') {
+            color = hexToRgba(state.fx.particleColor || '#00ffff', state.fx.particleOpacity ?? 0.9);
+            speedY = -(Math.random() * state.fx.particleSpeed + 0.3);
+            speedX = (Math.random() - 0.5) * 0.2;
+            size = Math.ceil(Math.random() * state.fx.particleSize * 0.8 + 2);
+            glow = Math.random() > 0.5;
+            shape = 'pixel';
+        } else if (style === 'ascii') {
+            const asciiChars = '0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ@#$%&*<>?/\\|[]{}';
+            color = hexToRgba(state.fx.particleColor || '#00ff41', state.fx.particleOpacity ?? 0.9);
+            speedY = Math.random() * state.fx.particleSpeed + 0.4;
+            speedX = 0;
+            size = Math.ceil(Math.random() * state.fx.particleSize * 0.7 + 8);
+            glow = Math.random() > 0.5;
+            shape = 'ascii';
+            return state.visuals.particles.push({
+                x: Math.random() * canvasW, y: Math.random() * canvasH,
+                size, speedY, speedX, color, glow, shape,
+                char: asciiChars[Math.floor(Math.random() * asciiChars.length)],
+                charTimer: 0,
+                charInterval: Math.floor(Math.random() * 8 + 4),
+            });
+        } else {
+            color = `rgba(255, 255, 255, ${Math.random() * 0.4 + 0.2})`;
+            speedY = -(Math.random() * state.fx.particleSpeed + 0.3);
+            speedX = (Math.random() - 0.5) * 0.4;
+            size = Math.random() * state.fx.particleSize + 0.5;
+            glow = Math.random() > 0.7;
+            shape = 'circle';
+        }
+
+        state.visuals.particles.push({ x: Math.random() * canvasW, y: Math.random() * canvasH, size, speedY, speedX, color, glow, shape });
     }
 }
 
@@ -381,7 +434,7 @@ function renderFrame() {
     
     if (state.fx.cameraDrift) {
         const speedCoeff = state.fx.cameraDriftSpeed !== undefined ? state.fx.cameraDriftSpeed : 1.0;
-        const driftTime = Date.now() * 0.00045 * speedCoeff;
+        const driftTime = (state.audio.currentTime || Date.now() * 0.001) * 0.45 * speedCoeff;
         const amp = state.fx.cameraDriftAmplitude !== undefined ? state.fx.cameraDriftAmplitude : 60.0;
         const zoomCushion = state.fx.cameraDriftZoom !== undefined ? state.fx.cameraDriftZoom : 1.10;
         
@@ -758,30 +811,60 @@ function renderFrame() {
     // --- 3. Draw Ambient Particles FX ---
     if (state.fx.particles && state.visuals.particles.length) {
         state.visuals.particles.forEach(p => {
-            ctx.beginPath();
-            const speedMultiplier = pulseScale > 1.01 ? 3.5 : 1.0;
+            const speedMultiplier = 1.0 + Math.min(2.5, Math.max(0, pulseScale - 1.0) * 50);
             p.y += p.speedY * speedMultiplier;
             p.x += p.speedX;
-            
-            if (p.y < 0) {
+
+            if (p.speedY < 0 && p.y < 0) {
                 p.y = height;
                 p.x = Math.random() * width;
+            } else if (p.speedY > 0 && p.y > height) {
+                p.y = 0;
+                p.x = Math.random() * width;
             }
-            if (p.x < 0 || p.x > width) {
-                p.speedX = -p.speedX;
-            }
-            
+            if (p.x < 0 || p.x > width) p.speedX = -p.speedX;
+
             ctx.fillStyle = p.color;
-            if (p.glow && pulseScale > 1.01 && state.visuals.glowEnabled) {
-                ctx.shadowColor = getGlowColor(state.visuals.color);
-                ctx.shadowBlur = 15 * (state.visuals.glowStrength !== undefined ? state.visuals.glowStrength : 1.0);
-                ctx.arc(p.x, p.y, p.size * 1.8, 0, Math.PI * 2);
+            if (p.shape === 'pixel') {
+                const s = Math.max(2, Math.ceil(p.size));
+                if (p.glow && pulseScale > 1.01 && state.visuals.glowEnabled) {
+                    ctx.shadowColor = p.color;
+                    ctx.shadowBlur = s * 3;
+                } else {
+                    ctx.shadowColor = 'transparent';
+                    ctx.shadowBlur = 0;
+                }
+                ctx.fillRect(p.x, p.y, s, s);
+            } else if (p.shape === 'ascii') {
+                const asciiChars = '0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ@#$%&*<>?/\\|[]{}';
+                p.charTimer++;
+                if (p.charTimer >= p.charInterval) {
+                    p.char = asciiChars[Math.floor(Math.random() * asciiChars.length)];
+                    p.charTimer = 0;
+                }
+                const fontSize = Math.max(8, Math.ceil(p.size));
+                ctx.font = `bold ${fontSize}px monospace`;
+                if (p.glow && pulseScale > 1.01 && state.visuals.glowEnabled) {
+                    ctx.shadowColor = p.color;
+                    ctx.shadowBlur = fontSize * 1.5;
+                } else {
+                    ctx.shadowColor = 'transparent';
+                    ctx.shadowBlur = 0;
+                }
+                ctx.fillText(p.char, p.x, p.y);
             } else {
-                ctx.shadowColor = 'transparent';
-                ctx.shadowBlur = 0;
-                ctx.arc(p.x, p.y, p.size, 0, Math.PI * 2);
+                ctx.beginPath();
+                if (p.glow && pulseScale > 1.01 && state.visuals.glowEnabled) {
+                    ctx.shadowColor = getGlowColor(state.visuals.color);
+                    ctx.shadowBlur = 15 * (state.visuals.glowStrength !== undefined ? state.visuals.glowStrength : 1.0);
+                    ctx.arc(p.x, p.y, p.size * 1.8, 0, Math.PI * 2);
+                } else {
+                    ctx.shadowColor = 'transparent';
+                    ctx.shadowBlur = 0;
+                    ctx.arc(p.x, p.y, p.size, 0, Math.PI * 2);
+                }
+                ctx.fill();
             }
-            ctx.fill();
         });
         ctx.shadowColor = 'transparent';
         ctx.shadowBlur = 0;
@@ -806,11 +889,7 @@ function renderFrame() {
         
         ctx.translate(centerX, centerY);
         if (state.visuals.waveRotationEnabled) {
-            if (!state.visuals.waveRotationAngle) {
-                state.visuals.waveRotationAngle = 0;
-            }
-            state.visuals.waveRotationAngle += 0.005 * state.visuals.waveRotationSpeed;
-            ctx.rotate(state.visuals.waveRotationAngle);
+            ctx.rotate((state.audio.currentTime || 0) * 0.15 * (state.visuals.waveRotationSpeed || 1));
         }
         ctx.scale(state.visuals.waveScale, state.visuals.waveScale);
         ctx.translate(-centerX, -centerY);
@@ -841,7 +920,9 @@ function renderFrame() {
         } else if (state.visuals.style === 'bars') {
             const barSpacing = 4;
             const barWidth = state.visuals.barWidth;
-            const barCount = Math.min(100, Math.floor(width / (barWidth + barSpacing)));
+            const barCount = state.visuals.mirrorEnabled 
+                ? Math.floor(width / (barWidth + barSpacing))
+                : Math.min(100, Math.floor(width / (barWidth + barSpacing)));
             
             const startX = (width - (barCount * (barWidth + barSpacing))) / 2 + state.visuals.waveShiftX;
             
@@ -850,8 +931,8 @@ function renderFrame() {
                 ctx.save();
                 ctx.setTransform(1, 0, 0, 1, 0, 0);
                 
-                const baseBottom = height - 10 + state.visuals.waveShiftY;
-                const baseTop = 10 + state.visuals.waveShiftY;
+                const baseBottom = height;
+                const baseTop = 0;
                 
                 ctx.beginPath();
                 for (let i = 0; i < barCount; i++) {
@@ -890,21 +971,26 @@ function renderFrame() {
                 // Draw in absolute coordinates by resetting current transformation temporarily
                 ctx.save();
                 ctx.setTransform(1, 0, 0, 1, 0, 0);
-                
+
                 const baseBottom = height + state.visuals.waveShiftY;
                 const baseTop = 0 + state.visuals.waveShiftY;
-                
-                // Set up gradients for bottom and top
-                const barGradBottom = ctx.createLinearGradient(0, baseBottom, 0, baseBottom - currentHeight * 2.0);
-                barGradBottom.addColorStop(0, 'rgba(0, 0, 0, 0)');
-                barGradBottom.addColorStop(0.4, rawColor.startsWith('gradient:') ? glowColor : colorHex);
-                barGradBottom.addColorStop(1, 'rgba(255, 255, 255, 0.45)');
-                
-                const barGradTop = ctx.createLinearGradient(0, baseTop, 0, baseTop + currentHeight * 2.0);
-                barGradTop.addColorStop(0, 'rgba(0, 0, 0, 0)');
-                barGradTop.addColorStop(0.4, rawColor.startsWith('gradient:') ? glowColor : colorHex);
-                barGradTop.addColorStop(1, 'rgba(255, 255, 255, 0.45)');
-                
+
+                let fillBottom, fillTop;
+                if (rawColor.startsWith('gradient:')) {
+                    fillBottom = colorHex;
+                    fillTop = colorHex;
+                } else {
+                    fillBottom = ctx.createLinearGradient(0, baseBottom, 0, baseBottom - currentHeight * 2.0);
+                    fillBottom.addColorStop(0, 'rgba(0, 0, 0, 0)');
+                    fillBottom.addColorStop(0.4, colorHex);
+                    fillBottom.addColorStop(1, 'rgba(255, 255, 255, 0.45)');
+
+                    fillTop = ctx.createLinearGradient(0, baseTop, 0, baseTop + currentHeight * 2.0);
+                    fillTop.addColorStop(0, 'rgba(0, 0, 0, 0)');
+                    fillTop.addColorStop(0.4, colorHex);
+                    fillTop.addColorStop(1, 'rgba(255, 255, 255, 0.45)');
+                }
+
                 // Bottom giant bars
                 ctx.beginPath();
                 for (let i = 0; i < barCount; i++) {
@@ -913,8 +999,8 @@ function renderFrame() {
                     const x = startX + i * barWidth;
                     ctx.roundRect(x + 2, baseBottom - val, barWidth - 4, val, [8, 8, 0, 0]);
                 }
-                fillWithHDRBloom(ctx, glowColor, barGradBottom);
-                
+                fillWithHDRBloom(ctx, glowColor, fillBottom);
+
                 // Top giant bars
                 ctx.beginPath();
                 for (let i = 0; i < barCount; i++) {
@@ -923,17 +1009,22 @@ function renderFrame() {
                     const x = startX + i * barWidth;
                     ctx.roundRect(x + 2, baseTop, barWidth - 4, val, [0, 0, 8, 8]);
                 }
-                fillWithHDRBloom(ctx, glowColor, barGradTop);
-                
+                fillWithHDRBloom(ctx, glowColor, fillTop);
+
                 ctx.restore();
             } else {
                 // Standard giantBars: respects position (yBase) perfectly!
                 const baseBottom = yBase + state.visuals.waveShiftY;
-                const barGrad = ctx.createLinearGradient(0, baseBottom, 0, baseBottom - currentHeight * 2.0);
-                barGrad.addColorStop(0, 'rgba(0, 0, 0, 0)');
-                barGrad.addColorStop(0.4, rawColor.startsWith('gradient:') ? glowColor : colorHex);
-                barGrad.addColorStop(1, 'rgba(255, 255, 255, 0.45)');
-                
+                let fillBar;
+                if (rawColor.startsWith('gradient:')) {
+                    fillBar = colorHex;
+                } else {
+                    fillBar = ctx.createLinearGradient(0, baseBottom, 0, baseBottom - currentHeight * 2.0);
+                    fillBar.addColorStop(0, 'rgba(0, 0, 0, 0)');
+                    fillBar.addColorStop(0.4, colorHex);
+                    fillBar.addColorStop(1, 'rgba(255, 255, 255, 0.45)');
+                }
+
                 ctx.beginPath();
                 for (let i = 0; i < barCount; i++) {
                     const dataIdx = Math.floor((i / barCount) * (bufferLength * 0.5));
@@ -942,7 +1033,7 @@ function renderFrame() {
                     const y = baseBottom - val;
                     ctx.roundRect(x + 2, y, barWidth - 4, val, [8, 8, 0, 0]);
                 }
-                fillWithHDRBloom(ctx, glowColor, barGrad);
+                fillWithHDRBloom(ctx, glowColor, fillBar);
             }
             
         } else if (state.visuals.style === 'circular') {
@@ -1023,7 +1114,7 @@ function renderFrame() {
             if (state.text.glowEnabled) {
                 const glowColor = state.text.color || '#ffffff';
                 const intensity = state.text.glowStrength !== undefined ? state.text.glowStrength : 1.0;
-                const spread = 35 * intensity;
+                const spread = (state.visuals.glowRadius !== undefined ? state.visuals.glowRadius : 35) * intensity;
                 const opacity = 0.85;
 
                 ctx.save();
@@ -1142,11 +1233,12 @@ function renderFrame() {
         const opacity = state.fx.crtOpacity || 0.12;
         const rollSpeed = state.fx.crtRollSpeed || 0.0;
         const grainIntensity = state.fx.crtGrain !== undefined ? state.fx.crtGrain : 0.05;
-        const rollOffset = rollSpeed > 0 ? (Date.now() * 0.003 * rollSpeed) % scanlineThickness : 0;
-        
+        const t = state.audio.currentTime || Date.now() * 0.001;
+        const rollOffset = rollSpeed > 0 ? (t * 3 * rollSpeed) % scanlineThickness : 0;
+
         let noiseOpacity = opacity * 0.35;
         if (state.fx.crtFlicker) {
-            const flickerSpeed = Math.sin(Date.now() * 0.04) * 0.03;
+            const flickerSpeed = Math.sin(t * 40) * 0.03;
             noiseOpacity += flickerSpeed;
         }
         
