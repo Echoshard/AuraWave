@@ -13,6 +13,8 @@ logger = logging.getLogger(__name__)
 
 # Global memory-based tracking for background render tasks
 render_tasks = {}
+# In-progress chunked WebM upload sessions  {session_id: {'webm_path': str, 'bytes_written': int}}
+remux_sessions = {}
 
 app = Flask(__name__)
 
@@ -109,6 +111,58 @@ def clean_uploads():
         logger.error(f"Failed to clean uploads folder: {e}")
         return jsonify({'error': str(e)}), 500
 
+def run_remux_thread(w_path, m_path, t_id, a_path, a_del_path):
+    """Run FFmpeg in a background thread to transcode WebM → H.264 MP4."""
+    try:
+        if a_path and os.path.exists(a_path):
+            cmd = [
+                'ffmpeg', '-y',
+                '-i', w_path,
+                '-i', a_path,
+                '-c:v', 'libx264',
+                '-pix_fmt', 'yuv420p',
+                '-preset', 'fast',
+                '-crf', '18',
+                '-c:a', 'aac',
+                '-b:a', '192k',
+                '-shortest',
+                m_path
+            ]
+        else:
+            cmd = [
+                'ffmpeg', '-y',
+                '-i', w_path,
+                '-c:v', 'libx264',
+                '-pix_fmt', 'yuv420p',
+                '-preset', 'fast',
+                '-crf', '18',
+                m_path
+            ]
+        logger.info(f"Remuxing WebM to MP4: {' '.join(cmd)}")
+        process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, bufsize=1)
+        for line in iter(process.stdout.readline, ''):
+            line_str = line.strip()
+            if line_str:
+                logger.info(f"FFmpeg [{t_id}]: {line_str}")
+                if any(x in line_str for x in ['frame=', 'fps=', 'time=', 'speed=', 'size=']):
+                    render_tasks[t_id]['last_log_line'] = line_str
+        process.wait()
+        if process.returncode == 0:
+            render_tasks[t_id] = {'status': 'completed', 'url': f'/exports/{t_id}', 'error': None, 'last_log_line': 'Remux completed successfully!'}
+        else:
+            render_tasks[t_id] = {'status': 'failed', 'url': None, 'error': f'FFmpeg failed (exit {process.returncode}).', 'last_log_line': ''}
+    except Exception as e:
+        logger.error(f"Remux exception: {e}")
+        render_tasks[t_id] = {'status': 'failed', 'url': None, 'error': str(e), 'last_log_line': ''}
+    finally:
+        if os.path.exists(w_path):
+            try: os.remove(w_path)
+            except Exception: pass
+        if a_del_path and os.path.exists(a_del_path):
+            try: os.remove(a_del_path)
+            except Exception: pass
+
+
 @app.route('/api/remux', methods=['POST'])
 def remux_video():
     """Receives a WebM blob recorded on the client, and transcodes it to H.264/AAC MP4."""
@@ -169,80 +223,7 @@ def remux_video():
         'last_log_line': 'FFmpeg remuxing and audio transcoding starting...'
     }
     
-    def process_remux(w_path, m_path, t_id, a_path, a_del_path):
-        try:
-            # Build the FFmpeg command line
-            if a_path and os.path.exists(a_path):
-                cmd = [
-                    'ffmpeg', '-y',
-                    '-i', w_path,
-                    '-i', a_path,
-                    '-c:v', 'libx264',
-                    '-pix_fmt', 'yuv420p',
-                    '-preset', 'fast',
-                    '-crf', '18',
-                    '-c:a', 'aac',
-                    '-b:a', '192k',
-                    '-shortest',
-                    m_path
-                ]
-            else:
-                cmd = [
-                    'ffmpeg', '-y',
-                    '-i', w_path,
-                    '-c:v', 'libx264',
-                    '-pix_fmt', 'yuv420p',
-                    '-preset', 'fast',
-                    '-crf', '18',
-                    '-c:a', 'aac',
-                    '-b:a', '192k',
-                    m_path
-                ]
-            logger.info(f"Remuxing WebM to MP4: {' '.join(cmd)}")
-            
-            process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, bufsize=1)
-            
-            for line in iter(process.stdout.readline, ''):
-                line_str = line.strip()
-                if line_str:
-                    logger.info(f"FFmpeg Remux [{t_id}]: {line_str}")
-                    if any(x in line_str for x in ['frame=', 'fps=', 'time=', 'speed=', 'size=']):
-                        render_tasks[t_id]['last_log_line'] = line_str
-                        
-            process.wait()
-            
-            if process.returncode == 0:
-                logger.info(f"Remux successful: {t_id}")
-                render_tasks[t_id] = {
-                    'status': 'completed',
-                    'url': f'/exports/{t_id}',
-                    'error': None,
-                    'last_log_line': 'Remux completed successfully!'
-                }
-            else:
-                logger.error(f"Remux failed with exit code: {process.returncode}")
-                render_tasks[t_id] = {
-                    'status': 'failed',
-                    'url': None,
-                    'error': f"FFmpeg remux failed with exit code {process.returncode}."
-                }
-        except Exception as e:
-            logger.error(f"Remux exception: {str(e)}")
-            render_tasks[t_id] = {
-                'status': 'failed',
-                'url': None,
-                'error': str(e)
-            }
-        finally:
-            if os.path.exists(w_path):
-                try: os.remove(w_path)
-                except Exception: pass
-            if a_del_path and os.path.exists(a_del_path):
-                try: os.remove(a_del_path)
-                except Exception: pass
-                
-    # Run remux in a background thread
-    thread = threading.Thread(target=process_remux, args=(webm_path, mp4_path, task_id, audio_path, audio_to_delete))
+    thread = threading.Thread(target=run_remux_thread, args=(webm_path, mp4_path, task_id, audio_path, audio_to_delete))
     thread.start()
     
     return jsonify({
@@ -250,6 +231,64 @@ def remux_video():
         'task_id': task_id,
         'url': f'/exports/{task_id}'
     })
+
+@app.route('/api/remux-start', methods=['POST'])
+def remux_start():
+    """Initialize a chunked WebM upload session. Returns session_id."""
+    session_id = str(uuid.uuid4())
+    webm_path = os.path.join(app.config['UPLOAD_FOLDER'], f"temp_{session_id}.webm")
+    open(webm_path, 'wb').close()
+    remux_sessions[session_id] = {'webm_path': webm_path, 'bytes_written': 0}
+    return jsonify({'session_id': session_id})
+
+
+@app.route('/api/remux-chunk/<session_id>', methods=['POST'])
+def remux_chunk(session_id):
+    """Append a raw binary chunk to the in-progress WebM file."""
+    session = remux_sessions.get(session_id)
+    if not session:
+        return jsonify({'error': 'Invalid or expired session'}), 404
+    data = request.data
+    with open(session['webm_path'], 'ab') as f:
+        f.write(data)
+    session['bytes_written'] += len(data)
+    return jsonify({'ok': True, 'bytes_written': session['bytes_written']})
+
+
+@app.route('/api/remux-finalize/<session_id>', methods=['POST'])
+def remux_finalize(session_id):
+    """Close the upload session and kick off FFmpeg transcoding."""
+    session = remux_sessions.pop(session_id, None)
+    if not session:
+        return jsonify({'error': 'Invalid or expired session'}), 404
+
+    webm_path = session['webm_path']
+
+    export_name = request.form.get('export_name', '')
+    if export_name.lower().endswith('.mp4'):
+        export_name = export_name[:-4]
+    safe_name = secure_filename(export_name) or f"remux_{uuid.uuid4()}"
+    task_id = f"{safe_name}.mp4"
+    mp4_path = os.path.join(app.config['EXPORT_FOLDER'], task_id)
+
+    audio_path = None
+    audio_to_delete = None
+    if 'audio_upload' in request.files:
+        af = request.files['audio_upload']
+        if af.filename:
+            fn = f"temp_audio_{uuid.uuid4()}.wav"
+            audio_path = os.path.join(app.config['UPLOAD_FOLDER'], fn)
+            af.save(audio_path)
+            audio_to_delete = audio_path
+    if not audio_path and 'audio_file' in request.form:
+        candidate = os.path.join(app.config['UPLOAD_FOLDER'], request.form['audio_file'])
+        if os.path.exists(candidate):
+            audio_path = candidate
+
+    render_tasks[task_id] = {'status': 'processing', 'error': None, 'url': f'/exports/{task_id}', 'last_log_line': 'FFmpeg starting...'}
+    threading.Thread(target=run_remux_thread, args=(webm_path, mp4_path, task_id, audio_path, audio_to_delete)).start()
+    return jsonify({'status': 'processing', 'task_id': task_id, 'url': f'/exports/{task_id}'})
+
 
 def probe_file(file_path):
     """Probes a media file and returns duration and streams presence."""

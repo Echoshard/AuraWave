@@ -339,7 +339,8 @@ async function runClientSideExport() {
     
     let muxer = null;
     let videoEncoder = null;
-    
+    let encoderError = null;
+
     try {
         const webmMuxerModule = await import('https://cdn.jsdelivr.net/npm/webm-muxer@3.0.2/+esm');
         const Muxer = webmMuxerModule.Muxer || webmMuxerModule.default?.Muxer || window.WebmMuxer?.Muxer;
@@ -363,17 +364,18 @@ async function runClientSideExport() {
                 muxer.addVideoChunk(chunk, metadata);
             },
             error: (e) => {
+                encoderError = e;
                 console.error("VideoEncoder error:", e);
             }
         });
-        
+
         videoEncoder.configure({
-            codec: 'vp09.00.10.08',
+            codec: 'vp09.00.41.08', // VP9 profile 0, level 4.1 — correct for 1080p @ 4 Mbps
             width: videoWidth,
             height: videoHeight,
-            bitrate: 4000000, // 4 Mbps — H.264 CRF 18 remux determines final quality
+            bitrate: 4000000,
             framerate: 30,
-            latencyMode: 'quality'
+            latencyMode: 'realtime'
         });
     } catch (err) {
         console.error("Failed to initialize WebCodecs:", err);
@@ -384,6 +386,7 @@ async function runClientSideExport() {
     
     const totalFrames = Math.ceil(duration * 30);
     let isCancelled = false;
+    const renderStartTime = performance.now();
     
     elements.btnCancelRender.onclick = () => {
         isCancelled = true;
@@ -417,10 +420,12 @@ async function runClientSideExport() {
             // Draw visualizer frame on preview canvas
             renderFrame();
             
-            // Create VideoFrame and encode
+            if (encoderError) throw encoderError;
+
+            // Create VideoFrame and encode; keyframe every 2 s for stable chunk boundaries
             const timestampUs = Math.round(time * 1000000);
             const frame = new VideoFrame(canvas, { timestamp: timestampUs });
-            videoEncoder.encode(frame);
+            videoEncoder.encode(frame, { keyFrame: f % 60 === 0 });
             frame.close();
             
             // Prevent frame queue overflows — yield without background-tab throttling
@@ -434,11 +439,18 @@ async function runClientSideExport() {
             // Yield every 10 frames to keep the tab responsive without throttling
             if (f % 10 === 0) await yieldToEventLoop();
             
-            // Update UI percent (first 95% of compilation)
             const pct = Math.min(Math.floor((f / totalFrames) * 95), 95);
             elements.renderPercent.innerText = `${pct}%`;
             elements.renderProgressbar.style.width = `${pct}%`;
-            elements.renderDetailsLog.innerText = `Compiled: ${f} / ${totalFrames} frames | GPU Active`;
+
+            if (f % 10 === 0 && f > 0) {
+                const elapsed = (performance.now() - renderStartTime) / 1000;
+                const framesLeft = totalFrames - f;
+                const etaSec = Math.round(framesLeft / (f / elapsed));
+                elements.renderDetailsLog.innerText = etaSec >= 60
+                    ? `ETA: ${Math.floor(etaSec / 60)}m ${etaSec % 60}s`
+                    : `ETA: ${etaSec}s`;
+            }
         }
         
         if (isCancelled) {
@@ -456,36 +468,55 @@ async function runClientSideExport() {
         state.audio.analyser = originalAnalyser;
         
         const { buffer: webmBuffer } = muxer.target;
-        const videoBlob = new Blob([webmBuffer], { type: 'video/webm' });
-        
-        // Switch to Server-Side Transcoding phase
-        elements.renderModalTitle.innerText = 'Optimizing Video Compatibility...';
-        elements.renderModalSub.innerText = 'Remuxing audio & video streams to premium H.264/AAC MP4 on the server...';
-        elements.renderPercent.innerText = '99%';
-        elements.renderProgressbar.style.width = '99%';
-        elements.renderDetailsLog.innerText = 'Uploading WebM stream to server FFmpeg thread...';
-        
-        const formData = new FormData();
-        formData.append('file', videoBlob, 'recording.webm');
-        
+
+        // Stream WebM to server in 2 MB chunks — avoids single large upload and memory limits
+        elements.renderModalTitle.innerText = 'Streaming Video to Server...';
+        elements.renderModalSub.innerText = 'Uploading encoded frames to server for H.264 transcoding...';
+        elements.renderPercent.innerText = '96%';
+        elements.renderProgressbar.style.width = '96%';
+
+        const CHUNK_SIZE = 2 * 1024 * 1024;
+        const totalBytes = webmBuffer.byteLength;
+
+        const startRes = await fetch('/api/remux-start', { method: 'POST' });
+        if (!startRes.ok) throw new Error('Failed to start upload session');
+        const { session_id } = await startRes.json();
+
+        let offset = 0;
+        while (offset < totalBytes) {
+            const end = Math.min(offset + CHUNK_SIZE, totalBytes);
+            const chunk = webmBuffer.slice(offset, end);
+            const chunkRes = await fetch(`/api/remux-chunk/${session_id}`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/octet-stream' },
+                body: chunk
+            });
+            if (!chunkRes.ok) throw new Error('Chunk upload failed');
+            offset = end;
+            const uploadPct = 96 + Math.floor((offset / totalBytes) * 3); // 96–99%
+            elements.renderPercent.innerText = `${uploadPct}%`;
+            elements.renderProgressbar.style.width = `${uploadPct}%`;
+            elements.renderDetailsLog.innerText = `Uploaded ${(offset / 1048576).toFixed(1)} / ${(totalBytes / 1048576).toFixed(1)} MB`;
+        }
+
+        elements.renderDetailsLog.innerText = 'Finalizing — starting FFmpeg...';
+
+        const finalForm = new FormData();
         if (wasSynthActive) {
-            formData.append('audio_upload', wavBlob, 'synth.wav');
-            formData.append('export_name', 'synthetic_dream');
+            finalForm.append('audio_upload', wavBlob, 'synth.wav');
+            finalForm.append('export_name', 'synthetic_dream');
         } else {
             const serverFilename = state.audio.audioUrl.split('/uploads/')[1];
-            formData.append('audio_file', serverFilename);
-            
+            finalForm.append('audio_file', serverFilename);
             let originalName = state.audio.fileName || 'visualizer';
             const dotIndex = originalName.lastIndexOf('.');
-            if (dotIndex > 0) {
-                originalName = originalName.substring(0, dotIndex);
-            }
-            formData.append('export_name', originalName);
+            if (dotIndex > 0) originalName = originalName.substring(0, dotIndex);
+            finalForm.append('export_name', originalName);
         }
-        
-        const res = await fetch('/api/remux', {
+
+        const res = await fetch(`/api/remux-finalize/${session_id}`, {
             method: 'POST',
-            body: formData
+            body: finalForm
         });
         const data = await res.json();
         if (data.error) throw new Error(data.error);
@@ -494,7 +525,7 @@ async function runClientSideExport() {
         state.export.renderTaskId = taskFilename;
         
         elements.renderModalTitle.innerText = 'Server Transcoding Video...';
-        elements.renderModalSub.innerText = 'Encoding visually lossless H.264/AAC MP4. Please keep this tab open.';
+        elements.renderModalSub.innerText = '';
         
         let pollTicks = 0;
         const pollInterval = setInterval(() => {
@@ -568,7 +599,17 @@ async function runClientSideExport() {
                         elements.renderModal.style.display = 'none';
                     };
                 } else {
-                    elements.renderDetailsLog.innerText = statusData.last_log_line || `Transcoding... Running for ${pollTicks * 1.5} seconds...`;
+                    const log = statusData.last_log_line || '';
+                    const timeMatch = log.match(/time=(\d+):(\d+):(\d+\.?\d*)/);
+                    const speedMatch = log.match(/speed=\s*(\d+\.?\d*)x/);
+                    if (timeMatch && speedMatch) {
+                        const processed = parseInt(timeMatch[1]) * 3600 + parseInt(timeMatch[2]) * 60 + parseFloat(timeMatch[3]);
+                        const speed = parseFloat(speedMatch[1]);
+                        const etaSec = speed > 0 ? Math.round((duration - processed) / speed) : 0;
+                        elements.renderDetailsLog.innerText = etaSec > 0
+                            ? (etaSec >= 60 ? `ETA: ${Math.floor(etaSec / 60)}m ${etaSec % 60}s` : `ETA: ${etaSec}s`)
+                            : 'ETA: almost done...';
+                    }
                 }
             })
             .catch(err => {
