@@ -79,6 +79,7 @@ const state = {
         particleSpeed: 1.5,
         particleColor: '#00ffff',
         particleOpacity: 0.9,
+        particleDirection: 'up',
         vignette: false,
         vignetteStrength: 0.70,
         vignetteColor: '#000000',
@@ -86,11 +87,6 @@ const state = {
         ambientSphere: true,
         ambientSphereStyle: 'ring', // ring or sphere
         ambientSphereRadius: 320,
-        waterRipple: false,
-        waterRippleFrequency: 0.0035,
-        waterRippleAmplitude: 15.0,
-        waterRippleDirection: 'horizontal', // horizontal, vertical, dual
-        waterRippleDensity: 0.006,
         crt: false,
         crtOpacity: 0.12,
         crtThickness: 6,
@@ -248,11 +244,10 @@ document.addEventListener('DOMContentLoaded', () => {
     elements.particleSizeVal = document.getElementById('particle-size-val');
     elements.particleSpeed = document.getElementById('particle-speed');
     elements.particleSpeedVal = document.getElementById('particle-speed-val');
-    elements.pixelColorRow = document.getElementById('pixel-color-row');
-    elements.pixelOpacityRow = document.getElementById('pixel-opacity-row');
     elements.particlePixelColor = document.getElementById('particle-pixel-color');
     elements.particlePixelOpacity = document.getElementById('particle-pixel-opacity');
     elements.particlePixelOpacityVal = document.getElementById('particle-pixel-opacity-val');
+    elements.particleDirection = document.getElementById('particle-direction');
     
     elements.fxVignette = document.getElementById('fx-vignette');
     elements.vignetteControls = document.getElementById('vignette-controls');
@@ -270,16 +265,6 @@ document.addEventListener('DOMContentLoaded', () => {
     elements.shapeGlowStrengthVal = document.getElementById('shape-glow-strength-val');
     elements.shapeScaleReactive = document.getElementById('shape-scale-reactive');
     elements.shapeGlowReactive = document.getElementById('shape-glow-reactive');
-    
-    elements.fxWaterRipple = document.getElementById('fx-water-ripple');
-    elements.fxWaterRippleFrequency = document.getElementById('fx-water-ripple-frequency');
-    elements.waterRippleFreqVal = document.getElementById('water-ripple-freq-val');
-    elements.fxWaterRippleAmplitude = document.getElementById('fx-water-ripple-amplitude');
-    elements.waterRippleAmpVal = document.getElementById('water-ripple-amp-val');
-    elements.fxWaterRippleDirection = document.getElementById('fx-water-ripple-direction');
-    elements.fxWaterRippleDensity = document.getElementById('fx-water-ripple-density');
-    elements.waterRippleDensityVal = document.getElementById('water-ripple-density-val');
-    elements.waterRippleControls = document.getElementById('water-ripple-controls');
     
     elements.fxCrt = document.getElementById('fx-crt');
     elements.fxCrtOpacity = document.getElementById('fx-crt-opacity');
@@ -776,9 +761,13 @@ document.addEventListener('DOMContentLoaded', () => {
     if (elements.fxParticleStyle) {
         elements.fxParticleStyle.addEventListener('change', (e) => {
             state.fx.particleStyle = e.target.value;
-            const showPixelControls = (e.target.value === 'pixels' || e.target.value === 'ascii');
-            if (elements.pixelColorRow) elements.pixelColorRow.style.display = showPixelControls ? '' : 'none';
-            if (elements.pixelOpacityRow) elements.pixelOpacityRow.style.display = showPixelControls ? '' : 'none';
+            setupParticles();
+            triggerRedraw();
+        });
+    }
+    if (elements.particleDirection) {
+        elements.particleDirection.addEventListener('change', (e) => {
+            state.fx.particleDirection = e.target.value;
             setupParticles();
             triggerRedraw();
         });
@@ -845,45 +834,6 @@ document.addEventListener('DOMContentLoaded', () => {
             const val = parseFloat(e.target.value);
             state.fx.vignetteRadius = val;
             elements.vignetteRadiusVal.innerText = `${Math.round(val * 100)}%`;
-            triggerRedraw();
-        });
-    }
-
-    // Watery Ripple Distortion listeners
-    if (elements.fxWaterRipple) {
-        elements.fxWaterRipple.addEventListener('change', (e) => {
-            state.fx.waterRipple = e.target.checked;
-            elements.waterRippleControls.classList.toggle('open', e.target.checked);
-            triggerRedraw();
-        });
-    }
-    if (elements.fxWaterRippleFrequency) {
-        elements.fxWaterRippleFrequency.addEventListener('input', (e) => {
-            const val = parseFloat(e.target.value);
-            state.fx.waterRippleFrequency = val;
-            elements.waterRippleFreqVal.innerText = val.toFixed(4);
-            triggerRedraw();
-        });
-    }
-    if (elements.fxWaterRippleAmplitude) {
-        elements.fxWaterRippleAmplitude.addEventListener('input', (e) => {
-            const val = parseFloat(e.target.value);
-            state.fx.waterRippleAmplitude = val;
-            elements.waterRippleAmpVal.innerText = `${val}px`;
-            triggerRedraw();
-        });
-    }
-    if (elements.fxWaterRippleDensity) {
-        elements.fxWaterRippleDensity.addEventListener('input', (e) => {
-            const val = parseFloat(e.target.value);
-            state.fx.waterRippleDensity = val;
-            elements.waterRippleDensityVal.innerText = val.toFixed(4);
-            triggerRedraw();
-        });
-    }
-    if (elements.fxWaterRippleDirection) {
-        elements.fxWaterRippleDirection.addEventListener('change', (e) => {
-            state.fx.waterRippleDirection = e.target.value;
             triggerRedraw();
         });
     }
@@ -1524,7 +1474,6 @@ function initFXControls() {
     if (state.fx.beatPulse) elements.beatPulseControls.classList.add('open');
     if (state.fx.particles) elements.particleControls.classList.add('open');
     if (state.fx.vignette) elements.vignetteControls.classList.add('open');
-    if (state.fx.waterRipple) elements.waterRippleControls.classList.add('open');
     if (state.fx.crt) elements.crtControls.classList.add('open');
     if (state.fx.cameraDrift) elements.fxCameraDriftControls.classList.add('open');
 }
@@ -1650,6 +1599,12 @@ function syncDOMToState() {
         elements.particleSpeed.value = state.fx.particleSpeed;
         elements.particleSpeedVal.innerText = `${state.fx.particleSpeed.toFixed(1)}x`;
     }
+    if (elements.particlePixelColor) elements.particlePixelColor.value = state.fx.particleColor;
+    if (elements.particlePixelOpacity) {
+        elements.particlePixelOpacity.value = Math.round(state.fx.particleOpacity * 100);
+        elements.particlePixelOpacityVal.innerText = `${Math.round(state.fx.particleOpacity * 100)}%`;
+    }
+    if (elements.particleDirection) elements.particleDirection.value = state.fx.particleDirection;
 
     if (elements.fxVignette) elements.fxVignette.checked = state.fx.vignette;
     if (elements.fxVignetteStrength) {
@@ -1661,21 +1616,6 @@ function syncDOMToState() {
         elements.fxVignetteRadius.value = state.fx.vignetteRadius;
         elements.vignetteRadiusVal.innerText = `${Math.round(state.fx.vignetteRadius * 100)}%`;
     }
-
-    if (elements.fxWaterRipple) elements.fxWaterRipple.checked = state.fx.waterRipple;
-    if (elements.fxWaterRippleFrequency) {
-        elements.fxWaterRippleFrequency.value = state.fx.waterRippleFrequency;
-        elements.waterRippleFreqVal.innerText = state.fx.waterRippleFrequency.toFixed(4);
-    }
-    if (elements.fxWaterRippleAmplitude) {
-        elements.fxWaterRippleAmplitude.value = state.fx.waterRippleAmplitude;
-        elements.waterRippleAmpVal.innerText = `${state.fx.waterRippleAmplitude}px`;
-    }
-    if (elements.fxWaterRippleDensity) {
-        elements.fxWaterRippleDensity.value = state.fx.waterRippleDensity;
-        elements.waterRippleDensityVal.innerText = state.fx.waterRippleDensity.toFixed(4);
-    }
-    if (elements.fxWaterRippleDirection) elements.fxWaterRippleDirection.value = state.fx.waterRippleDirection;
 
     if (elements.fxCrt) elements.fxCrt.checked = state.fx.crt;
     if (elements.fxCrtOpacity) {
@@ -1781,7 +1721,6 @@ function syncDOMToState() {
     elements.beatPulseControls.classList.toggle('open', state.fx.beatPulse);
     elements.particleControls.classList.toggle('open', state.fx.particles);
     elements.vignetteControls.classList.toggle('open', state.fx.vignette);
-    elements.waterRippleControls.classList.toggle('open', state.fx.waterRipple);
     elements.crtControls.classList.toggle('open', state.fx.crt);
     elements.fxCameraDriftControls.classList.toggle('open', state.fx.cameraDrift);
 

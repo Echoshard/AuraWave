@@ -101,6 +101,7 @@ function hexToRgba(hex, alpha) {
 }
 
 let noisePattern = null;
+let offscreenCanvas = null;
 function getNoisePattern(ctx) {
     if (noisePattern) return noisePattern;
     
@@ -292,69 +293,54 @@ function setupParticles() {
     const canvasW = elements.visualizerCanvas.width;
     const canvasH = elements.visualizerCanvas.height;
     const style = state.fx.particleStyle || 'stardust';
-
-    const pixelPalette = [
-        `rgba(0, 255, 255, 0.95)`,
-        `rgba(255, 0, 255, 0.95)`,
-        `rgba(255, 255, 0, 0.95)`,
-        `rgba(255, 255, 255, 0.95)`,
-        `rgba(0, 255, 128, 0.95)`,
-        `rgba(255, 64, 128, 0.95)`,
-        `rgba(64, 128, 255, 0.95)`,
-    ];
+    const color = hexToRgba(state.fx.particleColor || '#00ffff', state.fx.particleOpacity ?? 0.9);
+    const dirMult = (state.fx.particleDirection === 'down') ? 1 : -1;
+    const asciiChars = '0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ@#$%&*<>?/\\|[]{}';
 
     for (let i = 0; i < count; i++) {
-        let color, speedY, speedX, size, glow, shape;
+        let speedY, speedX, size, glow, shape;
+        let char = null, charTimer = 0, charInterval = 8;
 
         if (style === 'embers') {
-            const r = 220 + Math.floor(Math.random() * 35);
-            const g = 60 + Math.floor(Math.random() * 90);
-            color = `rgba(${r}, ${g}, 10, ${Math.random() * 0.5 + 0.4})`;
-            speedY = -(Math.random() * state.fx.particleSpeed + 0.2);
+            speedY = dirMult * (Math.random() * state.fx.particleSpeed + 0.2);
             speedX = (Math.random() - 0.5) * 0.9;
             size = Math.random() * state.fx.particleSize + 0.5;
             glow = Math.random() > 0.5;
             shape = 'circle';
         } else if (style === 'rain') {
-            const g = 150 + Math.floor(Math.random() * 105);
-            color = `rgba(0, ${g}, 60, ${Math.random() * 0.5 + 0.3})`;
-            speedY = Math.random() * state.fx.particleSpeed + 0.5;
+            speedY = dirMult * (Math.random() * state.fx.particleSpeed + 0.5);
             speedX = 0;
             size = Math.random() * state.fx.particleSize * 0.6 + 0.5;
             glow = Math.random() > 0.6;
             shape = 'circle';
         } else if (style === 'pixels') {
-            color = hexToRgba(state.fx.particleColor || '#00ffff', state.fx.particleOpacity ?? 0.9);
-            speedY = -(Math.random() * state.fx.particleSpeed + 0.3);
+            speedY = dirMult * (Math.random() * state.fx.particleSpeed + 0.3);
             speedX = (Math.random() - 0.5) * 0.2;
             size = Math.ceil(Math.random() * state.fx.particleSize * 0.8 + 2);
             glow = Math.random() > 0.5;
             shape = 'pixel';
         } else if (style === 'ascii') {
-            const asciiChars = '0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ@#$%&*<>?/\\|[]{}';
-            color = hexToRgba(state.fx.particleColor || '#00ff41', state.fx.particleOpacity ?? 0.9);
-            speedY = Math.random() * state.fx.particleSpeed + 0.4;
+            speedY = dirMult * (Math.random() * state.fx.particleSpeed + 0.4);
             speedX = 0;
             size = Math.ceil(Math.random() * state.fx.particleSize * 0.7 + 8);
             glow = Math.random() > 0.5;
             shape = 'ascii';
-            return state.visuals.particles.push({
-                x: Math.random() * canvasW, y: Math.random() * canvasH,
-                size, speedY, speedX, color, glow, shape,
-                char: asciiChars[Math.floor(Math.random() * asciiChars.length)],
-                charTimer: 0,
-                charInterval: Math.floor(Math.random() * 8 + 4),
-            });
+            char = asciiChars[Math.floor(Math.random() * asciiChars.length)];
+            charInterval = Math.floor(Math.random() * 8 + 4);
         } else {
-            color = `rgba(255, 255, 255, ${Math.random() * 0.4 + 0.2})`;
-            speedY = -(Math.random() * state.fx.particleSpeed + 0.3);
+            // stardust
+            speedY = dirMult * (Math.random() * state.fx.particleSpeed + 0.3);
             speedX = (Math.random() - 0.5) * 0.4;
             size = Math.random() * state.fx.particleSize + 0.5;
             glow = Math.random() > 0.7;
             shape = 'circle';
         }
 
-        state.visuals.particles.push({ x: Math.random() * canvasW, y: Math.random() * canvasH, size, speedY, speedX, color, glow, shape });
+        state.visuals.particles.push({
+            x: Math.random() * canvasW, y: Math.random() * canvasH,
+            size, speedY, speedX, color, glow, shape,
+            char, charTimer, charInterval
+        });
     }
 }
 
@@ -415,11 +401,7 @@ function renderFrame() {
     }
 
     // --- 1. Draw Background using Offscreen Canvas Cover scaling, Zooms, and Shifts ---
-    let offscreenCanvas = document.getElementById('offscreen-bg-canvas');
-    if (!offscreenCanvas) {
-        offscreenCanvas = document.createElement('canvas');
-        offscreenCanvas.id = 'offscreen-bg-canvas';
-    }
+    if (!offscreenCanvas) offscreenCanvas = document.createElement('canvas');
     if (offscreenCanvas.width !== width || offscreenCanvas.height !== height) {
         offscreenCanvas.width = width;
         offscreenCanvas.height = height;
@@ -482,48 +464,7 @@ function renderFrame() {
         drawPresetGradient(bgCtx, width, height, state.visuals.gradientPreset);
     }
 
-    // Draw background offscreen with Watery Ripple refract distortions
-    if (state.fx.waterRipple) {
-        const time = Date.now() * (state.fx.waterRippleFrequency * 1000 || 3.5);
-        const amp = state.fx.waterRippleAmplitude || 15.0;
-        const rippleStrength = amp + (pulseScale - 1.0) * 140;
-        const sliceH = 4;
-        const dir = state.fx.waterRippleDirection || 'horizontal';
-        const density = state.fx.waterRippleDensity || 0.006;
-        
-        if (dir === 'horizontal') {
-            for (let y = 0; y < height; y += sliceH) {
-                const xOffset = Math.sin(y * density + time) * rippleStrength;
-                ctx.drawImage(
-                    offscreenCanvas,
-                    0, y, width, sliceH,
-                    xOffset, y, width, sliceH
-                );
-            }
-        } else if (dir === 'vertical') {
-            const sliceW = 4;
-            for (let x = 0; x < width; x += sliceW) {
-                const yOffset = Math.cos(x * density + time) * rippleStrength;
-                ctx.drawImage(
-                    offscreenCanvas,
-                    x, 0, sliceW, height,
-                    x, yOffset, sliceW, height
-                );
-            }
-        } else {
-            for (let y = 0; y < height; y += sliceH) {
-                const xOffset = Math.sin(y * density + time) * rippleStrength * 0.7;
-                const yOffset = Math.cos(y * density + time) * rippleStrength * 0.5;
-                ctx.drawImage(
-                    offscreenCanvas,
-                    0, y, width, sliceH,
-                    xOffset, y + yOffset, width, sliceH
-                );
-            }
-        }
-    } else {
-        ctx.drawImage(offscreenCanvas, 0, 0, width, height);
-    }
+    ctx.drawImage(offscreenCanvas, 0, 0, width, height);
 
     // Core character silhouette drawer
     function drawForegroundCutout() {
