@@ -18,6 +18,18 @@ function yieldToEventLoop() {
     });
 }
 
+// Seek a video element to the given time and wait for the seek to complete
+function syncVideoToTime(video, time) {
+    if (!video || video.readyState < 2) return Promise.resolve();
+    const loopedTime = time % (video.duration || 1);
+    if (Math.abs(video.currentTime - loopedTime) < 0.017) return Promise.resolve();
+    return new Promise(resolve => {
+        const tid = setTimeout(resolve, 300);
+        video.addEventListener('seeked', () => { clearTimeout(tid); resolve(); }, { once: true });
+        video.currentTime = loopedTime;
+    });
+}
+
 document.addEventListener('DOMContentLoaded', () => {
     state.export.method = 'client';
 
@@ -27,7 +39,18 @@ document.addEventListener('DOMContentLoaded', () => {
                 alert('Please load an audio track or enable the Built-in Synth Demo first!');
                 return;
             }
-            runClientSideExport();
+            runClientSideExport(false);
+        });
+    }
+
+    const btnExportPreview = document.getElementById('btn-export-preview');
+    if (btnExportPreview) {
+        btnExportPreview.addEventListener('click', () => {
+            if (!state.audio.synthActive && !state.audio.buffer) {
+                alert('Please load an audio track or enable the Built-in Synth Demo first!');
+                return;
+            }
+            runClientSideExport(true);
         });
     }
 });
@@ -65,6 +88,22 @@ function radix2FFT(re, im) {
             }
         }
     }
+}
+
+// Extract 512 time-domain PCM samples from an AudioBuffer at a given time
+function extractTimeDomainBins(buffer, time) {
+    const N = 512;
+    const sampleRate  = buffer.sampleRate;
+    const startSample = Math.floor(time * sampleRate);
+    const chanL = buffer.getChannelData(0);
+    const chanR = buffer.numberOfChannels > 1 ? buffer.getChannelData(1) : chanL;
+    const output = new Uint8Array(N);
+    for (let i = 0; i < N; i++) {
+        const idx = startSample + i;
+        const val = (idx >= 0 && idx < buffer.length) ? (chanL[idx] + chanR[idx]) / 2 : 0;
+        output[i] = Math.max(0, Math.min(255, Math.round((val + 1.0) * 127.5)));
+    }
+    return output;
 }
 
 // Extract 256-bin frequency magnitudes from an AudioBuffer at a given time
@@ -205,7 +244,7 @@ function audioBufferToWav(buffer) {
 
 // ─── Main export ─────────────────────────────────────────────────────────────
 
-async function runClientSideExport() {
+async function runClientSideExport(previewMode = false) {
     // Guard: webm-muxer must be loaded from the script tag
     const webmLib = window.WebMMuxer;
     if (!webmLib || !webmLib.Muxer || !webmLib.ArrayBufferTarget) {
@@ -244,7 +283,8 @@ async function runClientSideExport() {
 
     let exportBuffer = null;
     let wavBlob      = null;
-    const duration   = wasSynthActive ? 15.0 : state.audio.duration;
+    const fullDuration = wasSynthActive ? 15.0 : state.audio.duration;
+    const duration     = previewMode ? Math.min(15.0, fullDuration) : fullDuration;
 
     if (wasSynthActive) {
         elements.renderModalTitle.innerText = 'Synthesizing Audio...';
@@ -285,15 +325,26 @@ async function runClientSideExport() {
     }
 
     // ── Analyser mock ────────────────────────────────────────────────────────
-    let prevSmoothed = new Uint8Array(256);
+    let prevSmoothed      = new Uint8Array(256);
+    let currentTimeDomain = new Uint8Array(512).fill(128);
     const originalAnalyser = state.audio.analyser;
     state.audio.analyser = {
         frequencyBinCount: 256,
+        fftSize: 512,
         getByteFrequencyData(array) {
             for (let i = 0; i < Math.min(array.length, prevSmoothed.length); i++)
                 array[i] = prevSmoothed[i];
+        },
+        getByteTimeDomainData(array) {
+            for (let i = 0; i < Math.min(array.length, currentTimeDomain.length); i++)
+                array[i] = currentTimeDomain[i];
         }
     };
+
+    // Suspend AudioContext so no live audio bleeds through during render
+    if (state.audio.context && state.audio.context.state === 'running') {
+        await state.audio.context.suspend();
+    }
 
     // ── Segment constants ────────────────────────────────────────────────────
     const SEGMENT_SECONDS = 15;                        // ~7 MB per segment at 4 Mbps
@@ -304,6 +355,12 @@ async function runClientSideExport() {
     const renderStartTime = performance.now();
 
     elements.btnCancelRender.onclick = () => { isCancelled = true; };
+
+    // Pause video backgrounds so we can seek them frame-accurately during export
+    const exportBgVideo = state.visuals.bgVideo;
+    const exportFgVideo = state.visuals.fgVideo;
+    if (exportBgVideo) { exportBgVideo.pause(); exportBgVideo.currentTime = 0; }
+    if (exportFgVideo) { exportFgVideo.pause(); exportFgVideo.currentTime = 0; }
 
     try {
         // ── Segment loop ─────────────────────────────────────────────────────
@@ -347,9 +404,10 @@ async function runClientSideExport() {
 
                 const time = f / FPS;
                 state.audio.currentTime = time;
-                prevSmoothed = extractFFTBins(
-                    exportBuffer, time, prevSmoothed, state.visuals.smoothing
-                );
+                prevSmoothed      = extractFFTBins(exportBuffer, time, prevSmoothed, state.visuals.smoothing);
+                currentTimeDomain = extractTimeDomainBins(exportBuffer, time);
+                if (exportBgVideo) await syncVideoToTime(exportBgVideo, time);
+                if (exportFgVideo) await syncVideoToTime(exportFgVideo, time);
                 renderFrame();
 
                 if (encoderError) throw encoderError;
@@ -420,6 +478,9 @@ async function runClientSideExport() {
         if (isCancelled) {
             elements.renderModal.style.display = 'none';
             state.audio.analyser = originalAnalyser;
+        if (state.audio.context && state.audio.context.state === 'suspended') state.audio.context.resume();
+            if (exportBgVideo) exportBgVideo.play().catch(() => {});
+            if (exportFgVideo) exportFgVideo.play().catch(() => {});
             return;
         }
 
@@ -431,18 +492,20 @@ async function runClientSideExport() {
         elements.renderDetailsLog.innerText    = 'Waiting for FFmpeg...';
 
         state.audio.analyser = originalAnalyser;
+        if (state.audio.context && state.audio.context.state === 'suspended') state.audio.context.resume();
 
         const finalForm = new FormData();
+        const suffix = previewMode ? '_preview' : '';
         if (wasSynthActive) {
             finalForm.append('audio_upload', wavBlob, 'synth.wav');
-            finalForm.append('export_name',  'synthetic_dream');
+            finalForm.append('export_name',  'synthetic_dream' + suffix);
         } else {
             const serverFilename = state.audio.audioUrl.split('/uploads/')[1];
             finalForm.append('audio_file', serverFilename);
             let baseName = (state.audio.fileName || 'visualizer');
             const dot = baseName.lastIndexOf('.');
             if (dot > 0) baseName = baseName.substring(0, dot);
-            finalForm.append('export_name', baseName);
+            finalForm.append('export_name', baseName + suffix);
         }
 
         const finalRes = await fetch(
@@ -492,9 +555,12 @@ async function runClientSideExport() {
                         elements.btnDownloadExport.onclick = () => {
                             const a = document.createElement('a');
                             a.href     = s.url;
-                            a.download = wasSynthActive
-                                ? 'synthetic_dream.mp4'
-                                : `${(state.audio.fileName || 'visualizer').split('.')[0]}_viz.mp4`;
+                            if (wasSynthActive) {
+                                a.download = previewMode ? 'synthetic_dream_preview.mp4' : 'synthetic_dream.mp4';
+                            } else {
+                                const base = (state.audio.fileName || 'visualizer').split('.')[0];
+                                a.download = previewMode ? `${base}_preview.mp4` : `${base}_viz.mp4`;
+                            }
                             a.click();
                             elements.renderModal.style.display = 'none';
                         };
@@ -558,5 +624,8 @@ async function runClientSideExport() {
         alert('Export error: ' + e.message);
         elements.renderModal.style.display = 'none';
         state.audio.analyser = originalAnalyser;
+        if (state.audio.context && state.audio.context.state === 'suspended') state.audio.context.resume();
+        if (exportBgVideo) exportBgVideo.play().catch(() => {});
+        if (exportFgVideo) exportFgVideo.play().catch(() => {});
     }
 }

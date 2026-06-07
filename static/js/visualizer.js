@@ -1,5 +1,158 @@
 /* AuraWave Engine - Canvas Renderer & Visualizer Pipeline */
 
+// === Three.js Global State ===
+let threeScene = null, threeCamera = null, threeRenderer = null, threeSphere = null, originalPositions = null, threeCanvas = null;
+let threeFailed = false;
+
+function initThree() {
+    if (threeScene || threeFailed) return;
+    if (!window.THREE) {
+        console.warn("Three.js library is not loaded yet.");
+        return;
+    }
+    
+    try {
+        // Create offscreen canvas for rendering
+        threeCanvas = document.createElement('canvas');
+        threeCanvas.width = 1024;
+        threeCanvas.height = 1024;
+        
+        threeScene = new THREE.Scene();
+        threeCamera = new THREE.PerspectiveCamera(45, 1, 0.1, 1000);
+        threeCamera.position.z = 380;
+        
+        threeRenderer = new THREE.WebGLRenderer({ canvas: threeCanvas, alpha: true, antialias: true });
+        threeRenderer.setSize(1024, 1024);
+        threeRenderer.setClearColor(0x000000, 0); // transparent background
+        
+        // icosahedron geometry forms a clean wireframe sphere triangular grid
+        const geometry = new THREE.IcosahedronGeometry(90, 4);
+        const positionAttribute = geometry.attributes.position;
+        originalPositions = Float32Array.from(positionAttribute.array);
+        
+        const material = new THREE.MeshBasicMaterial({
+            color: 0xffffff,
+            wireframe: true,
+            transparent: true,
+            opacity: 0.95
+        });
+        
+        threeSphere = new THREE.Mesh(geometry, material);
+        threeScene.add(threeSphere);
+    } catch (e) {
+        console.error("Three.js initialization failed, falling back to CPU projection:", e);
+        threeFailed = true;
+    }
+}
+
+// === FFT index mapping based on active algorithm ===
+function getFftValue(i, total, bufferLength, dataArray, algorithm) {
+    if (bufferLength === 0 || !dataArray || dataArray.length === 0) return 0;
+    
+    let idx = 0;
+    const limit = Math.floor(bufferLength * 0.65);
+    
+    switch (algorithm) {
+        case 'logarithmic':
+            const minLog = 1;
+            const logVal = minLog * Math.pow(limit / minLog, i / total);
+            idx = Math.floor(logVal);
+            break;
+        case 'symmetric':
+            const half = total / 2;
+            const distSym = Math.abs(half - i) / half;
+            idx = Math.floor(distSym * limit);
+            break;
+        case 'quad':
+            const quad = total / 4;
+            const rem = i % quad;
+            const distQuad = Math.abs(quad / 2 - rem) / (quad / 2);
+            idx = Math.floor(distQuad * limit);
+            break;
+        case 'sweep':
+        case 'linear':
+        default:
+            idx = Math.floor((i / total) * limit);
+            break;
+    }
+    
+    idx = Math.max(0, Math.min(bufferLength - 1, idx));
+    return dataArray[idx];
+}
+
+// === Draw a segmented bar with optional peaks and gradient colors ===
+function drawSegmentedBar(ctx, x, yStart, barWidth, heightVal, direction, classicColors, peakChase, barIndex, maxSegments, colorHex) {
+    const segHeight = state.visuals.segmentHeight || 8;
+    const segGap = state.visuals.segmentGap || 2;
+    const totalSegH = segHeight + segGap;
+    
+    // Initialize peaks array if needed
+    if (!window._barPeaks) {
+        window._barPeaks = [];
+        window._barPeakDecay = [];
+    }
+    if (window._barPeaks[barIndex] === undefined) {
+        window._barPeaks[barIndex] = 0;
+        window._barPeakDecay[barIndex] = 0;
+    }
+    
+    // Update peak
+    if (heightVal >= window._barPeaks[barIndex]) {
+        window._barPeaks[barIndex] = heightVal;
+        window._barPeakDecay[barIndex] = 15; // hold for 15 frames
+    } else {
+        if (window._barPeakDecay[barIndex] > 0) {
+            window._barPeakDecay[barIndex]--;
+        } else {
+            const fallSpeed = (state.visuals.peakDecay !== undefined ? state.visuals.peakDecay : 1.5) * 3;
+            window._barPeaks[barIndex] -= fallSpeed; // fall speed
+            if (window._barPeaks[barIndex] < 0) window._barPeaks[barIndex] = 0;
+        }
+    }
+    
+    const peakVal = window._barPeaks[barIndex];
+    
+    if (direction === 'center') {
+        const activeSegmentsHalf = Math.floor((heightVal / 2) / totalSegH);
+        const maxSegmentsHalf = Math.ceil((maxSegments / 2));
+        const peakSegHalf = Math.floor((peakVal / 2) / totalSegH);
+        let lastColor = null;
+        for (let s = 0; s < activeSegmentsHalf; s++) {
+            let segColor = classicColors ? (s/maxSegmentsHalf < 0.5 ? '#10b981' : s/maxSegmentsHalf < 0.75 ? '#fbbf24' : s/maxSegmentsHalf < 0.9 ? '#f97316' : '#ef4444') : colorHex;
+            if (segColor !== lastColor) { applyShadowGlow(ctx, getGlowColor(segColor), 15, 5, false); ctx.fillStyle = segColor; lastColor = segColor; }
+            ctx.fillRect(x, yStart - s * totalSegH - segHeight, barWidth, segHeight);
+            ctx.fillRect(x, yStart + s * totalSegH,             barWidth, segHeight);
+        }
+        if (peakChase && peakSegHalf > 0 && peakSegHalf >= activeSegmentsHalf) {
+            let peakColor = '#ef4444';
+            if (state.visuals.peakCustomColorEnabled && state.visuals.peakColor) peakColor = state.visuals.peakColor;
+            else if (classicColors) { const p = peakSegHalf/maxSegmentsHalf; peakColor = p<0.5?'#10b981':p<0.75?'#fbbf24':p<0.9?'#f97316':'#ef4444'; }
+            applyShadowGlow(ctx, getGlowColor(peakColor), 15, 5, false); ctx.fillStyle = peakColor;
+            ctx.fillRect(x, yStart - peakSegHalf * totalSegH - segHeight, barWidth, segHeight);
+            ctx.fillRect(x, yStart + peakSegHalf * totalSegH,             barWidth, segHeight);
+        }
+    } else {
+        const activeSegments = Math.floor(heightVal / totalSegH);
+        const peakSeg = Math.floor(peakVal / totalSegH);
+        const isUp = direction === 'up';
+        let lastColor = null;
+        for (let s = 0; s < activeSegments; s++) {
+            const ySeg = isUp ? yStart - s * totalSegH - segHeight : yStart + s * totalSegH;
+            let segColor = classicColors ? (s/maxSegments < 0.5 ? '#10b981' : s/maxSegments < 0.75 ? '#fbbf24' : s/maxSegments < 0.9 ? '#f97316' : '#ef4444') : colorHex;
+            if (segColor !== lastColor) { applyShadowGlow(ctx, getGlowColor(segColor), 15, 5, false); ctx.fillStyle = segColor; lastColor = segColor; }
+            ctx.fillRect(x, ySeg, barWidth, segHeight);
+        }
+        if (peakChase && peakSeg > 0 && peakSeg >= activeSegments) {
+            const yPeak = isUp ? yStart - peakSeg * totalSegH - segHeight : yStart + peakSeg * totalSegH;
+            let peakColor = '#ef4444';
+            if (state.visuals.peakCustomColorEnabled && state.visuals.peakColor) peakColor = state.visuals.peakColor;
+            else if (classicColors) { const p = peakSeg/maxSegments; peakColor = p<0.5?'#10b981':p<0.75?'#fbbf24':p<0.9?'#f97316':'#ef4444'; }
+            applyShadowGlow(ctx, getGlowColor(peakColor), 15, 5, false); ctx.fillStyle = peakColor;
+            ctx.fillRect(x, yPeak, barWidth, segHeight);
+        }
+    }
+}
+
 // === Color and Gradient Processing Utilities ===
 function getWaveColor(ctx, width, height, yBase, colorSetting) {
     const currentHeight = state.visuals.height * (1.0 + (pulseScale - 1.0) * 3.5);
@@ -10,7 +163,7 @@ function getWaveColor(ctx, width, height, yBase, colorSetting) {
     let gradStartX = 0;
     let gradEndX = 0;
     
-    if (state.visuals.style === 'circular') {
+    if (state.visuals.style === 'circular' || state.visuals.style === 'radialBurst') {
         const centerX = width / 2 + state.visuals.waveShiftX;
         const centerY = yBase;
         const radius = currentHeight * 0.5;
@@ -150,7 +303,7 @@ function applyShadowGlow(ctx, glowColor, baseBlur, beatBlurAmount, isShape = fal
     ctx.shadowBlur = Math.min(80, blur);
 }
 
-function strokeWithHDRBloom(ctx, glowColor, baseStrokeStyle, baseLineWidth, isShape = false) {
+function strokeWithHDRBloom(ctx, glowColor, baseStrokeStyle, baseLineWidth, isShape = false, fastMode = false, overrideBeatBoost = null) {
     if (!state.visuals.glowEnabled) {
         ctx.save();
         ctx.strokeStyle = baseStrokeStyle;
@@ -166,8 +319,10 @@ function strokeWithHDRBloom(ctx, glowColor, baseStrokeStyle, baseLineWidth, isSh
     const spread   = state.visuals.glowRadius  !== undefined ? state.visuals.glowRadius  : 35;
     const opacity  = state.visuals.glowOpacity !== undefined ? state.visuals.glowOpacity : 0.85;
 
-    const isBeatActive = state.visuals.glowWithBeat || (isShape && state.visuals.shapeGlowReactive);
-    const beatBoost = isBeatActive ? Math.max(0, pulseScale - 1.0) / 0.06 : 0;
+    const isBeatActive = overrideBeatBoost === null && (state.visuals.glowWithBeat || (isShape && state.visuals.shapeGlowReactive));
+    const beatBoost = overrideBeatBoost !== null
+        ? overrideBeatBoost
+        : (isBeatActive ? Math.max(0, pulseScale - 1.0) / 0.06 : 0);
     // Beat dramatically expands the bloom radius AND boosts effective intensity
     const dynSpread    = spread    * (1.0 + beatBoost * 2.0);
     const dynIntensity = intensity * (1.0 + beatBoost * 0.5);
@@ -188,15 +343,17 @@ function strokeWithHDRBloom(ctx, glowColor, baseStrokeStyle, baseLineWidth, isSh
     ctx.strokeStyle = baseStrokeStyle;
     ctx.lineWidth   = baseLineWidth;
 
-    // P1 — Deep atmospheric scatter
-    ctx.shadowColor = hexToRgba(glowColor, opacity * 0.06 * dynIntensity * strength);
-    ctx.shadowBlur  = Math.min(MAX_BLUR, dynSpread * 5.5);
-    ctx.stroke();
+    if (!fastMode) {
+        // P1 — Deep atmospheric scatter (skip in fast/batch mode — expensive on large paths)
+        ctx.shadowColor = hexToRgba(glowColor, opacity * 0.06 * dynIntensity * strength);
+        ctx.shadowBlur  = Math.min(MAX_BLUR, dynSpread * 5.5);
+        ctx.stroke();
 
-    // P2 — Broad corona
-    ctx.shadowColor = hexToRgba(glowColor, Math.min(1.0, opacity * 0.16 * dynIntensity * strength));
-    ctx.shadowBlur  = Math.min(MAX_BLUR, dynSpread * 2.6);
-    ctx.stroke();
+        // P2 — Broad corona
+        ctx.shadowColor = hexToRgba(glowColor, Math.min(1.0, opacity * 0.16 * dynIntensity * strength));
+        ctx.shadowBlur  = Math.min(MAX_BLUR, dynSpread * 2.6);
+        ctx.stroke();
+    }
 
     // P3 — Mid bloom
     ctx.shadowColor = hexToRgba(glowColor, Math.min(1.0, opacity * 0.46 * dynIntensity * strength));
@@ -237,7 +394,10 @@ function strokeWithHDRBloom(ctx, glowColor, baseStrokeStyle, baseLineWidth, isSh
     ctx.restore();
 }
 
-function fillWithHDRBloom(ctx, glowColor, baseFillStyle, isShape = false) {
+// fastMode skips the two wide, low-opacity scatter passes (P1+P2) for batch segment rendering
+// where the path contains hundreds of rects — those passes are expensive and barely visible there.
+// overrideBeatBoost lets callers (e.g. shapes) supply a volume-derived boost instead of the beat signal.
+function fillWithHDRBloom(ctx, glowColor, baseFillStyle, isShape = false, fastMode = false, overrideBeatBoost = null, noComposite = false) {
     if (!state.visuals.glowEnabled) {
         ctx.save();
         ctx.fillStyle = baseFillStyle;
@@ -252,8 +412,10 @@ function fillWithHDRBloom(ctx, glowColor, baseFillStyle, isShape = false) {
     const spread   = state.visuals.glowRadius  !== undefined ? state.visuals.glowRadius  : 35;
     const opacity  = state.visuals.glowOpacity !== undefined ? state.visuals.glowOpacity : 0.85;
 
-    const isBeatActive = state.visuals.glowWithBeat || (isShape && state.visuals.shapeGlowReactive);
-    const beatBoost = isBeatActive ? Math.max(0, pulseScale - 1.0) / 0.06 : 0;
+    const isBeatActive = overrideBeatBoost === null && (state.visuals.glowWithBeat || (isShape && state.visuals.shapeGlowReactive));
+    const beatBoost = overrideBeatBoost !== null
+        ? overrideBeatBoost
+        : (isBeatActive ? Math.max(0, pulseScale - 1.0) / 0.06 : 0);
     const dynSpread    = spread    * (1.0 + beatBoost * 2.0);
     const dynIntensity = intensity * (1.0 + beatBoost * 0.5);
 
@@ -264,18 +426,20 @@ function fillWithHDRBloom(ctx, glowColor, baseFillStyle, isShape = false) {
     const MAX_BLUR = 80;
 
     ctx.save();
-    ctx.globalCompositeOperation = 'lighter';
+    if (!noComposite) ctx.globalCompositeOperation = 'lighter';
     ctx.fillStyle = baseFillStyle;
 
-    // P1 — Atmospheric haze
-    ctx.shadowColor = hexToRgba(glowColor, opacity * 0.06 * dynIntensity * strength);
-    ctx.shadowBlur  = Math.min(MAX_BLUR, dynSpread * 5.5);
-    ctx.fill();
+    if (!fastMode) {
+        // P1 — Atmospheric haze (wide, expensive — skip in batch segment mode)
+        ctx.shadowColor = hexToRgba(glowColor, opacity * 0.06 * dynIntensity * strength);
+        ctx.shadowBlur  = Math.min(MAX_BLUR, dynSpread * 5.5);
+        ctx.fill();
 
-    // P2 — Broad corona
-    ctx.shadowColor = hexToRgba(glowColor, Math.min(1.0, opacity * 0.16 * dynIntensity * strength));
-    ctx.shadowBlur  = Math.min(MAX_BLUR, dynSpread * 2.6);
-    ctx.fill();
+        // P2 — Broad corona
+        ctx.shadowColor = hexToRgba(glowColor, Math.min(1.0, opacity * 0.16 * dynIntensity * strength));
+        ctx.shadowBlur  = Math.min(MAX_BLUR, dynSpread * 2.6);
+        ctx.fill();
+    }
 
     // P3 — Mid bloom
     ctx.shadowColor = hexToRgba(glowColor, Math.min(1.0, opacity * 0.46 * dynIntensity * strength));
@@ -287,8 +451,10 @@ function fillWithHDRBloom(ctx, glowColor, baseFillStyle, isShape = false) {
     ctx.shadowBlur  = Math.min(MAX_BLUR, dynSpread * 0.35);
     ctx.fill();
 
-    // Stacking blowout passes — capped at 3
-    const extraPasses = Math.max(0, Math.min(3, Math.ceil(dynIntensity * strength) - 1));
+    // Stacking blowout passes — capped at 2 in fast mode, 3 normally
+    const extraPasses = fastMode
+        ? 0
+        : Math.max(0, Math.min(3, Math.ceil(dynIntensity * strength) - 1));
     for (let s = 0; s < extraPasses; s++) {
         ctx.shadowColor = hexToRgba(glowColor, Math.min(1.0, opacity * 0.7 * strength));
         ctx.shadowBlur  = Math.min(MAX_BLUR, dynSpread * (0.28 + s * 0.14));
@@ -302,7 +468,7 @@ function fillWithHDRBloom(ctx, glowColor, baseFillStyle, isShape = false) {
     ctx.fillStyle = `rgba(255,255,255,${coreOpacity})`;
     ctx.fill();
 
-    if (dynIntensity * strength >= 1.5) {
+    if (!fastMode && dynIntensity * strength >= 1.5) {
         ctx.shadowColor = hexToRgba(glowColor, Math.min(1.0, opacity * dynIntensity * strength * 0.55));
         ctx.shadowBlur  = Math.min(MAX_BLUR, dynSpread * 0.55);
         ctx.fillStyle   = `rgba(255,255,255,${Math.min(1.0, (dynIntensity * strength - 1.0) * 0.5)})`;
@@ -516,13 +682,17 @@ function renderFrame() {
 
     // --- 2. Extract & Analyze Audio Bins ---
     let dataArray = new Uint8Array(0);
+    let timeDomainArray = new Uint8Array(0);
     let bufferLength = 0;
-    
+    let volumeIntensity = 0;
+
     if (state.audio.analyser) {
         bufferLength = state.audio.analyser.frequencyBinCount;
         dataArray = new Uint8Array(bufferLength);
         state.audio.analyser.getByteFrequencyData(dataArray);
-        
+        timeDomainArray = new Uint8Array(state.audio.analyser.fftSize);
+        state.audio.analyser.getByteTimeDomainData(timeDomainArray);
+
         let bassSum = 0;
         const bassMaxBin = Math.min(12, bufferLength);
         for (let i = 0; i < bassMaxBin; i++) {
@@ -531,19 +701,25 @@ function renderFrame() {
         const bassAvg = bassSum / bassMaxBin;
         const relativeRatio = bassAvg / (bassMovingAverage || 1);
         const isKick = (relativeRatio > 1.04 && bassAvg > 35);
-        const volumeReaction = Math.min(1.0, bassAvg / 180); 
-        
+        const volumeReaction = Math.min(1.0, bassAvg / 180);
+
         let targetPulse = 1.0 + (volumeReaction * 0.03);
         if (isKick) {
             targetPulse += Math.min(0.06, (relativeRatio - 1.0) * 0.15) * state.fx.beatPulseIntensity;
         }
-        
+
         if (targetPulse > pulseScale) {
             pulseScale = targetPulse;
         } else {
-            pulseScale += (1.0 - pulseScale) * 0.14; 
+            pulseScale += (1.0 - pulseScale) * 0.14;
         }
         bassMovingAverage = Math.max(5, bassMovingAverage * 0.96 + bassAvg * 0.04);
+
+        // Broad-spectrum volume level for shape glow reactivity (FFT is already pre-smoothed)
+        let vSum = 0;
+        const vCount = Math.min(bufferLength, 80);
+        for (let i = 0; i < vCount; i++) vSum += dataArray[i];
+        volumeIntensity = (vSum / vCount) / 255.0;
     }
 
     // Character cutout Behind visualizer
@@ -568,8 +744,11 @@ function renderFrame() {
         const glowColor = getGlowColor(rawColor);
         
         const beatIntensity = Math.max(0, pulseScale - 1.0) / 0.06;
-        const scaleFactor = state.visuals.shapeScaleReactive ? beatIntensity : 0;
-        const glowFactor = state.visuals.shapeGlowReactive ? beatIntensity : 0;
+        const _threshold = state.visuals.shapeGlowThreshold || 0;
+        const _effective = _threshold >= 1 ? 0 : Math.max(0, (volumeIntensity - _threshold) / (1 - _threshold));
+        const volumeFactor = _effective * state.visuals.sensitivity;
+        const scaleFactor = state.visuals.shapeScaleReactive ? volumeFactor : 0;
+        const glowFactor  = state.visuals.shapeGlowReactive  ? volumeFactor : 0;
         
         // Multiplier scaling how far visual shadow glows
         const finalGlowStrength = state.visuals.shapeGlowStrength !== undefined ? state.visuals.shapeGlowStrength : 1.0;
@@ -578,7 +757,7 @@ function renderFrame() {
             const currentRadius = baseRadius + scaleFactor * 120;
             ctx.beginPath();
             ctx.arc(centerX, centerY, Math.max(10, currentRadius), 0, Math.PI * 2);
-            strokeWithHDRBloom(ctx, glowColor, colorHex, 5 + glowFactor * 18, true);
+            strokeWithHDRBloom(ctx, glowColor, colorHex, 5 + glowFactor * 18, true, glowFactor);
         } else if (state.visuals.shapeType === 'sphere') {
             const currentRadius = baseRadius + scaleFactor * 220;
             const glowOpacity = Math.min(1.0, 0.18 + glowFactor * 0.75) * finalGlowStrength;
@@ -594,7 +773,7 @@ function renderFrame() {
             
             ctx.beginPath();
             ctx.arc(centerX, centerY, Math.max(10, currentRadius), 0, Math.PI * 2);
-            fillWithHDRBloom(ctx, glowColor, radial, true);
+            fillWithHDRBloom(ctx, glowColor, radial, true, false, glowFactor);
         } else if (state.visuals.shapeType === 'cube') {
             const vertices = [
                 {x: -1, y: -1, z: -1}, {x: 1, y: -1, z: -1}, {x: 1, y: 1, z: -1}, {x: -1, y: 1, z: -1},
@@ -623,7 +802,7 @@ function renderFrame() {
                 ctx.moveTo(projected[u].x, projected[u].y);
                 ctx.lineTo(projected[v].x, projected[v].y);
             });
-            strokeWithHDRBloom(ctx, glowColor, colorHex, 4 + glowFactor * 16, true);
+            strokeWithHDRBloom(ctx, glowColor, colorHex, 4 + glowFactor * 16, true, glowFactor);
         } else if (state.visuals.shapeType === 'pyramid') {
             const vertices = [
                 {x: -1, y: 1, z: -1}, {x: 1, y: 1, z: -1}, {x: 1, y: 1, z: 1}, {x: -1, y: 1, z: 1},
@@ -651,7 +830,7 @@ function renderFrame() {
                 ctx.moveTo(projected[u].x, projected[u].y);
                 ctx.lineTo(projected[v].x, projected[v].y);
             });
-            strokeWithHDRBloom(ctx, glowColor, colorHex, 4 + glowFactor * 16, true);
+            strokeWithHDRBloom(ctx, glowColor, colorHex, 4 + glowFactor * 16, true, glowFactor);
         } else if (state.visuals.shapeType === 'hypercube') {
             const vertices = [];
             for (let x = -1; x <= 1; x += 2) {
@@ -698,7 +877,7 @@ function renderFrame() {
                 ctx.moveTo(projected[u].x, projected[u].y);
                 ctx.lineTo(projected[v].x, projected[v].y);
             });
-            strokeWithHDRBloom(ctx, glowColor, colorHex, 3 + glowFactor * 12, true);
+            strokeWithHDRBloom(ctx, glowColor, colorHex, 3 + glowFactor * 12, true, glowFactor);
         } else if (state.visuals.shapeType === 'triangle' || state.visuals.shapeType === 'triangle_down') {
             const currentRadius = baseRadius + scaleFactor * 140;
             const time = Date.now() * 0.001;
@@ -715,7 +894,7 @@ function renderFrame() {
                 else ctx.lineTo(x, y);
             }
             ctx.closePath();
-            strokeWithHDRBloom(ctx, glowColor, colorHex, 5 + glowFactor * 18, true);
+            strokeWithHDRBloom(ctx, glowColor, colorHex, 5 + glowFactor * 18, true, glowFactor);
         } else if (state.visuals.shapeType === 'hexagon') {
             const currentRadius = baseRadius + scaleFactor * 140;
             const time = Date.now() * 0.001;
@@ -730,7 +909,7 @@ function renderFrame() {
                 else ctx.lineTo(x, y);
             }
             ctx.closePath();
-            strokeWithHDRBloom(ctx, glowColor, colorHex, 5 + glowFactor * 18, true);
+            strokeWithHDRBloom(ctx, glowColor, colorHex, 5 + glowFactor * 18, true, glowFactor);
         } else if (state.visuals.shapeType === 'hexagon_prism') {
             const vertices = [];
             for (let i = 0; i < 6; i++) {
@@ -765,7 +944,7 @@ function renderFrame() {
                 ctx.moveTo(projected[u].x, projected[u].y);
                 ctx.lineTo(projected[v].x, projected[v].y);
             });
-            strokeWithHDRBloom(ctx, glowColor, colorHex, 4 + glowFactor * 14, true);
+            strokeWithHDRBloom(ctx, glowColor, colorHex, 4 + glowFactor * 14, true, glowFactor);
         }
         ctx.restore();
     }
@@ -862,30 +1041,38 @@ function renderFrame() {
         ctx.translate(-centerX, -centerY);
         
         if (state.visuals.style === 'wave') {
-            ctx.beginPath();
-            
-            const sliceWidth = width / (bufferLength / 2);
-            let x = state.visuals.waveShiftX;
-            
-            for (let i = 0; i < bufferLength / 2; i++) {
-                const v = (dataArray[i] / 255.0) * state.visuals.sensitivity;
-                const y = yBase + (v * currentHeight * (i % 2 === 0 ? 1 : -1) * 0.5);
-                
-                if (i === 0) {
-                    ctx.moveTo(x, y);
-                } else {
-                    const nextX = x + sliceWidth;
-                    const nextY = yBase + ((dataArray[i+1] / 255.0) * state.visuals.sensitivity * currentHeight * ((i+1) % 2 === 0 ? 1 : -1) * 0.5);
-                    const xc = (x + nextX) / 2;
-                    const yc = (y + nextY) / 2;
-                    ctx.quadraticCurveTo(x, y, xc, yc);
-                }
-                x += sliceWidth;
+            const tdLen = timeDomainArray.length;
+            const sampleStep = Math.max(1, Math.floor(tdLen / 512));
+            const pointCount = Math.floor(tdLen / sampleStep);
+            const sliceWidth = width / pointCount;
+
+            // Pre-compute y positions
+            const pts = new Float32Array(pointCount);
+            for (let i = 0; i < pointCount; i++) {
+                const sample = timeDomainArray[i * sampleStep] ?? 128;
+                const v = (sample / 128.0) - 1.0;
+                pts[i] = yBase - v * currentHeight * state.visuals.sensitivity * 0.5;
             }
-            strokeWithHDRBloom(ctx, glowColor, colorHex, 6);
+
+            // Smooth with midpoint quadratic bezier (catmull-rom-style)
+            ctx.beginPath();
+            ctx.moveTo(state.visuals.waveShiftX, pts[0]);
+            for (let i = 1; i < pointCount - 1; i++) {
+                const x0 = state.visuals.waveShiftX + (i - 1) * sliceWidth;
+                const x1 = state.visuals.waveShiftX + i * sliceWidth;
+                const x2 = state.visuals.waveShiftX + (i + 1) * sliceWidth;
+                const cpX = (x0 + x1) / 2;
+                const cpY = (pts[i - 1] + pts[i]) / 2;
+                const endX = (x1 + x2) / 2;
+                const endY = (pts[i] + pts[i + 1]) / 2;
+                ctx.quadraticCurveTo(x1, pts[i], endX, endY);
+            }
+            // Final segment to last point
+            ctx.lineTo(state.visuals.waveShiftX + (pointCount - 1) * sliceWidth, pts[pointCount - 1]);
+            strokeWithHDRBloom(ctx, glowColor, colorHex, 2.5);
             
         } else if (state.visuals.style === 'bars') {
-            const barSpacing = 4;
+            const barSpacing = state.visuals.barSpread ?? 4;
             const barWidth = state.visuals.barWidth;
             const barCount = state.visuals.mirrorEnabled 
                 ? Math.floor(width / (barWidth + barSpacing))
@@ -900,39 +1087,182 @@ function renderFrame() {
                 
                 const baseBottom = height;
                 const baseTop = 0;
-                
-                ctx.beginPath();
-                for (let i = 0; i < barCount; i++) {
-                    const dataIdx = Math.floor((i / barCount) * (bufferLength * 0.6));
-                    const val = (dataArray[dataIdx] / 255) * state.visuals.sensitivity * currentHeight;
-                    const x = startX + i * (barWidth + barSpacing);
-                    
-                    // Bottom bar (pointing up)
-                    ctx.roundRect(x, baseBottom - val, barWidth, Math.max(4, val), [4, 4, 0, 0]);
-                    
-                    // Top bar (pointing down)
-                    ctx.roundRect(x, baseTop, barWidth, Math.max(4, val), [0, 0, 4, 4]);
+
+                if (state.visuals.barSegmented) {
+                    const segH = state.visuals.segmentHeight || 8;
+                    const segGap = state.visuals.segmentGap || 2;
+                    const totalSegH = segH + segGap;
+                    // Use half-height per side to match center-mode bar proportions
+                    const halfH = currentHeight / 2;
+                    const maxSegs = Math.ceil(halfH / totalSegH);
+                    if (!window._barPeaks) { window._barPeaks = []; window._barPeakDecay = []; }
+                    const barVals = new Float32Array(barCount);
+                    const peakSegs = new Float32Array(barCount);
+                    for (let i = 0; i < barCount; i++) {
+                        const val = (getFftValue(i, barCount, bufferLength, dataArray, state.visuals.fftAlgorithm) / 255) * state.visuals.sensitivity * halfH;
+                        barVals[i] = val;
+                        if (window._barPeaks[i] === undefined) { window._barPeaks[i] = 0; window._barPeakDecay[i] = 0; }
+                        if (val >= window._barPeaks[i]) { window._barPeaks[i] = val; window._barPeakDecay[i] = 15; }
+                        else if (window._barPeakDecay[i] > 0) { window._barPeakDecay[i]--; }
+                        else { const fs = (state.visuals.peakDecay !== undefined ? state.visuals.peakDecay : 1.5) * 3; window._barPeaks[i] -= fs; if (window._barPeaks[i] < 0) window._barPeaks[i] = 0; }
+                        peakSegs[i] = Math.floor(window._barPeaks[i] / totalSegH);
+                    }
+                    const _mirrorFill = (pathFn, color) => {
+                        ctx.beginPath();
+                        pathFn();
+                        fillWithHDRBloom(ctx, getGlowColor(color), color, false, true, null, true);
+                    };
+                    if (state.visuals.classicColors) {
+                        const tiers = [
+                            { c: '#10b981', lo: 0, hi: 0.5 },
+                            { c: '#fbbf24', lo: 0.5, hi: 0.75 },
+                            { c: '#f97316', lo: 0.75, hi: 0.9 },
+                            { c: '#ef4444', lo: 0.9, hi: 1.01 },
+                        ];
+                        for (const tier of tiers) {
+                            const sMin = Math.floor(tier.lo * maxSegs);
+                            const sMax = Math.ceil(tier.hi * maxSegs);
+                            _mirrorFill(() => {
+                                for (let i = 0; i < barCount; i++) {
+                                    const x = startX + i * (barWidth + barSpacing);
+                                    const dm = Math.floor(barVals[i] / totalSegH);
+                                    const bMax = Math.min(dm, sMax);
+                                    for (let s = sMin; s < bMax; s++) {
+                                        ctx.rect(x, baseBottom - s * totalSegH - segH, barWidth, segH);
+                                    }
+                                    const tMin = Math.max(0, dm - sMax);
+                                    const tMax = dm - sMin;
+                                    for (let s = tMin; s < tMax; s++) {
+                                        ctx.rect(x, baseTop + s * totalSegH, barWidth, segH);
+                                    }
+                                }
+                            }, tier.c);
+                        }
+                    } else {
+                        _mirrorFill(() => {
+                            for (let i = 0; i < barCount; i++) {
+                                const x = startX + i * (barWidth + barSpacing);
+                                const activeSegs = Math.floor(barVals[i] / totalSegH);
+                                for (let s = 0; s < activeSegs; s++) {
+                                    ctx.rect(x, baseBottom - s * totalSegH - segH, barWidth, segH);
+                                    ctx.rect(x, baseTop    + s * totalSegH,        barWidth, segH);
+                                }
+                            }
+                        }, colorHex);
+                    }
+                    if (state.visuals.peakChase) {
+                        const peakColor = (state.visuals.peakCustomColorEnabled && state.visuals.peakColor) ? state.visuals.peakColor : (state.visuals.classicColors ? '#ef4444' : colorHex);
+                        _mirrorFill(() => {
+                            for (let i = 0; i < barCount; i++) {
+                                const x = startX + i * (barWidth + barSpacing);
+                                const activeSegs = Math.floor(barVals[i] / totalSegH);
+                                if (peakSegs[i] > 0 && peakSegs[i] >= activeSegs) {
+                                    ctx.rect(x, baseBottom - peakSegs[i] * totalSegH - segH, barWidth, segH);
+                                    ctx.rect(x, baseTop    + peakSegs[i] * totalSegH,        barWidth, segH);
+                                }
+                            }
+                        }, peakColor);
+                    }
+                    ctx.shadowColor = 'transparent';
+                    ctx.shadowBlur = 0;
+                } else {
+                    ctx.beginPath();
+                    for (let i = 0; i < barCount; i++) {
+                        const val = (getFftValue(i, barCount, bufferLength, dataArray, state.visuals.fftAlgorithm) / 255) * state.visuals.sensitivity * currentHeight;
+                        const x = startX + i * (barWidth + barSpacing);
+                        ctx.roundRect(x, baseBottom - val, barWidth, Math.max(4, val), [4, 4, 0, 0]);
+                        ctx.roundRect(x, baseTop, barWidth, Math.max(4, val), [0, 0, 4, 4]);
+                    }
+                    fillWithHDRBloom(ctx, glowColor, colorHex);
                 }
-                fillWithHDRBloom(ctx, glowColor, colorHex);
                 ctx.restore();
             } else {
-                ctx.beginPath();
-                for (let i = 0; i < barCount; i++) {
-                    const dataIdx = Math.floor((i / barCount) * (bufferLength * 0.6));
-                    const val = (dataArray[dataIdx] / 255) * state.visuals.sensitivity * currentHeight;
-                    const x = startX + i * (barWidth + barSpacing);
-                    const y = yBase - val / 2;
-                    
-                    ctx.roundRect(x, y, barWidth, Math.max(4, val), 4);
+                if (state.visuals.barSegmented) {
+                    const segH = state.visuals.segmentHeight || 8;
+                    const segGap = state.visuals.segmentGap || 2;
+                    const totalSegH = segH + segGap;
+                    const halfH = currentHeight / 2;
+                    const maxSegsHalf = Math.ceil(halfH / totalSegH);
+                    if (!window._barPeaks) { window._barPeaks = []; window._barPeakDecay = []; }
+                    const barVals = new Float32Array(barCount);
+                    const peakSegs = new Float32Array(barCount);
+                    for (let i = 0; i < barCount; i++) {
+                        const val = (getFftValue(i, barCount, bufferLength, dataArray, state.visuals.fftAlgorithm) / 255) * state.visuals.sensitivity * halfH;
+                        barVals[i] = val;
+                        if (window._barPeaks[i] === undefined) { window._barPeaks[i] = 0; window._barPeakDecay[i] = 0; }
+                        if (val >= window._barPeaks[i]) { window._barPeaks[i] = val; window._barPeakDecay[i] = 15; }
+                        else if (window._barPeakDecay[i] > 0) { window._barPeakDecay[i]--; }
+                        else { const fs = (state.visuals.peakDecay !== undefined ? state.visuals.peakDecay : 1.5) * 3; window._barPeaks[i] -= fs; if (window._barPeaks[i] < 0) window._barPeaks[i] = 0; }
+                        peakSegs[i] = Math.floor(window._barPeaks[i] / totalSegH);
+                    }
+                    const _nmFill = (pathFn, color) => {
+                        ctx.beginPath(); pathFn();
+                        fillWithHDRBloom(ctx, getGlowColor(color), color, false, true, null, true);
+                    };
+                    if (state.visuals.classicColors) {
+                        const tiers = [
+                            { c: '#10b981', lo: 0.0, hi: 0.5 }, { c: '#fbbf24', lo: 0.5, hi: 0.75 },
+                            { c: '#f97316', lo: 0.75, hi: 0.9 }, { c: '#ef4444', lo: 0.9, hi: 1.01 },
+                        ];
+                        for (const tier of tiers) {
+                            const sMin = Math.floor(tier.lo * maxSegsHalf);
+                            const sMax = Math.ceil(tier.hi * maxSegsHalf);
+                            _nmFill(() => {
+                                for (let i = 0; i < barCount; i++) {
+                                    const x = startX + i * (barWidth + barSpacing);
+                                    const active = Math.min(Math.floor(barVals[i] / totalSegH), sMax);
+                                    for (let s = sMin; s < active; s++) {
+                                        ctx.rect(x, yBase - s * totalSegH - segH, barWidth, segH);
+                                        ctx.rect(x, yBase + s * totalSegH,        barWidth, segH);
+                                    }
+                                }
+                            }, tier.c);
+                        }
+                    } else {
+                        _nmFill(() => {
+                            for (let i = 0; i < barCount; i++) {
+                                const x = startX + i * (barWidth + barSpacing);
+                                const active = Math.floor(barVals[i] / totalSegH);
+                                for (let s = 0; s < active; s++) {
+                                    ctx.rect(x, yBase - s * totalSegH - segH, barWidth, segH);
+                                    ctx.rect(x, yBase + s * totalSegH,        barWidth, segH);
+                                }
+                            }
+                        }, colorHex);
+                    }
+                    if (state.visuals.peakChase) {
+                        const peakColor = (state.visuals.peakCustomColorEnabled && state.visuals.peakColor) ? state.visuals.peakColor : (state.visuals.classicColors ? '#ef4444' : colorHex);
+                        _nmFill(() => {
+                            for (let i = 0; i < barCount; i++) {
+                                const x = startX + i * (barWidth + barSpacing);
+                                const active = Math.floor(barVals[i] / totalSegH);
+                                if (peakSegs[i] > 0 && peakSegs[i] >= active) {
+                                    ctx.rect(x, yBase - peakSegs[i] * totalSegH - segH, barWidth, segH);
+                                    ctx.rect(x, yBase + peakSegs[i] * totalSegH,        barWidth, segH);
+                                }
+                            }
+                        }, peakColor);
+                    }
+                    ctx.shadowColor = 'transparent';
+                    ctx.shadowBlur = 0;
+                } else {
+                    ctx.beginPath();
+                    for (let i = 0; i < barCount; i++) {
+                        const val = (getFftValue(i, barCount, bufferLength, dataArray, state.visuals.fftAlgorithm) / 255) * state.visuals.sensitivity * currentHeight;
+                        const x = startX + i * (barWidth + barSpacing);
+                        const y = yBase - val / 2;
+                        
+                        ctx.roundRect(x, y, barWidth, Math.max(4, val), 4);
+                    }
+                    fillWithHDRBloom(ctx, glowColor, colorHex);
                 }
-                fillWithHDRBloom(ctx, glowColor, colorHex);
             }
             
         } else if (state.visuals.style === 'giantBars') {
             const barCount = 36;
-            const barWidth = width / barCount;
-            
-            const startX = state.visuals.waveShiftX;
+            const _gbSpread = state.visuals.barSpread ?? 4;
+            const barWidth = (width / barCount) - _gbSpread;
+            const startX = state.visuals.waveShiftX + _gbSpread / 2;
             
             if (state.visuals.mirrorEnabled) {
                 // Draw in absolute coordinates by resetting current transformation temporarily
@@ -942,96 +1272,351 @@ function renderFrame() {
                 const baseBottom = height + state.visuals.waveShiftY;
                 const baseTop = 0 + state.visuals.waveShiftY;
 
-                let fillBottom, fillTop;
-                if (rawColor.startsWith('gradient:')) {
-                    fillBottom = colorHex;
-                    fillTop = colorHex;
+                if (state.visuals.barSegmented) {
+                    const segH = state.visuals.segmentHeight || 8;
+                    const segGap = state.visuals.segmentGap || 2;
+                    const totalSegH = segH + segGap;
+                    const maxSegs = Math.ceil(currentHeight * 2.0 / totalSegH);
+                    if (!window._barPeaks) { window._barPeaks = []; window._barPeakDecay = []; }
+                    const barVals = new Float32Array(barCount);
+                    const peakSegs = new Float32Array(barCount);
+                    for (let i = 0; i < barCount; i++) {
+                        const val = (getFftValue(i, barCount, bufferLength, dataArray, state.visuals.fftAlgorithm) / 255) * state.visuals.sensitivity * currentHeight * 2.0;
+                        barVals[i] = val;
+                        if (window._barPeaks[i] === undefined) { window._barPeaks[i] = 0; window._barPeakDecay[i] = 0; }
+                        if (val >= window._barPeaks[i]) { window._barPeaks[i] = val; window._barPeakDecay[i] = 15; }
+                        else if (window._barPeakDecay[i] > 0) { window._barPeakDecay[i]--; }
+                        else { const fs = (state.visuals.peakDecay !== undefined ? state.visuals.peakDecay : 1.5) * 3; window._barPeaks[i] -= fs; if (window._barPeaks[i] < 0) window._barPeaks[i] = 0; }
+                        peakSegs[i] = Math.floor(window._barPeaks[i] / totalSegH);
+                    }
+                    const _gbFill = (pathFn, color) => {
+                        ctx.beginPath();
+                        pathFn();
+                        fillWithHDRBloom(ctx, getGlowColor(color), color, false, true, null, true);
+                    };
+                    if (state.visuals.classicColors) {
+                        const tiers = [
+                            { c: '#10b981', lo: 0, hi: 0.5 },
+                            { c: '#fbbf24', lo: 0.5, hi: 0.75 },
+                            { c: '#f97316', lo: 0.75, hi: 0.9 },
+                            { c: '#ef4444', lo: 0.9, hi: 1.01 },
+                        ];
+                        for (const tier of tiers) {
+                            const sMin = Math.floor(tier.lo * maxSegs);
+                            const sMax = Math.ceil(tier.hi * maxSegs);
+                            _gbFill(() => {
+                                for (let i = 0; i < barCount; i++) {
+                                    const x = startX + i * (barWidth + _gbSpread);
+                                    const dm = Math.floor(barVals[i] / totalSegH);
+                                    const bMax = Math.min(dm, sMax);
+                                    for (let s = sMin; s < bMax; s++) {
+                                        ctx.rect(x + 2, baseBottom - s * totalSegH - segH, barWidth - 4, segH);
+                                    }
+                                    const tMin = Math.max(0, dm - sMax);
+                                    const tMax = dm - sMin;
+                                    for (let s = tMin; s < tMax; s++) {
+                                        ctx.rect(x + 2, baseTop + s * totalSegH, barWidth - 4, segH);
+                                    }
+                                }
+                            }, tier.c);
+                        }
+                    } else {
+                        _gbFill(() => {
+                            for (let i = 0; i < barCount; i++) {
+                                const x = startX + i * (barWidth + _gbSpread);
+                                const activeSegs = Math.floor(barVals[i] / totalSegH);
+                                for (let s = 0; s < activeSegs; s++) {
+                                    ctx.rect(x + 2, baseBottom - s * totalSegH - segH, barWidth - 4, segH);
+                                    ctx.rect(x + 2, baseTop    + s * totalSegH,        barWidth - 4, segH);
+                                }
+                            }
+                        }, colorHex);
+                    }
+                    if (state.visuals.peakChase) {
+                        const peakColor = (state.visuals.peakCustomColorEnabled && state.visuals.peakColor) ? state.visuals.peakColor : (state.visuals.classicColors ? '#ef4444' : colorHex);
+                        _gbFill(() => {
+                            for (let i = 0; i < barCount; i++) {
+                                const x = startX + i * (barWidth + _gbSpread);
+                                const activeSegs = Math.floor(barVals[i] / totalSegH);
+                                if (peakSegs[i] > 0 && peakSegs[i] >= activeSegs) {
+                                    ctx.rect(x + 2, baseBottom - peakSegs[i] * totalSegH - segH, barWidth - 4, segH);
+                                    ctx.rect(x + 2, baseTop    + peakSegs[i] * totalSegH,        barWidth - 4, segH);
+                                }
+                            }
+                        }, peakColor);
+                    }
+                    ctx.shadowColor = 'transparent';
+                    ctx.shadowBlur = 0;
                 } else {
-                    fillBottom = ctx.createLinearGradient(0, baseBottom, 0, baseBottom - currentHeight * 2.0);
-                    fillBottom.addColorStop(0, 'rgba(0, 0, 0, 0)');
-                    fillBottom.addColorStop(0.4, colorHex);
-                    fillBottom.addColorStop(1, 'rgba(255, 255, 255, 0.45)');
+                    let fillBottom, fillTop;
+                    if (rawColor.startsWith('gradient:')) {
+                        fillBottom = colorHex;
+                        fillTop = colorHex;
+                    } else {
+                        fillBottom = ctx.createLinearGradient(0, baseBottom, 0, baseBottom - currentHeight * 2.0);
+                        fillBottom.addColorStop(0, 'rgba(0, 0, 0, 0)');
+                        fillBottom.addColorStop(0.4, colorHex);
+                        fillBottom.addColorStop(1, 'rgba(255, 255, 255, 0.45)');
 
-                    fillTop = ctx.createLinearGradient(0, baseTop, 0, baseTop + currentHeight * 2.0);
-                    fillTop.addColorStop(0, 'rgba(0, 0, 0, 0)');
-                    fillTop.addColorStop(0.4, colorHex);
-                    fillTop.addColorStop(1, 'rgba(255, 255, 255, 0.45)');
+                        fillTop = ctx.createLinearGradient(0, baseTop, 0, baseTop + currentHeight * 2.0);
+                        fillTop.addColorStop(0, 'rgba(0, 0, 0, 0)');
+                        fillTop.addColorStop(0.4, colorHex);
+                        fillTop.addColorStop(1, 'rgba(255, 255, 255, 0.45)');
+                    }
+
+                    // Bottom giant bars
+                    ctx.beginPath();
+                    for (let i = 0; i < barCount; i++) {
+                        const val = (getFftValue(i, barCount, bufferLength, dataArray, state.visuals.fftAlgorithm) / 255) * state.visuals.sensitivity * currentHeight * 2.0;
+                        const x = startX + i * (barWidth + _gbSpread);
+                        ctx.roundRect(x + 2, baseBottom - val, barWidth - 4, val, [8, 8, 0, 0]);
+                    }
+                    fillWithHDRBloom(ctx, glowColor, fillBottom);
+
+                    // Top giant bars
+                    ctx.beginPath();
+                    for (let i = 0; i < barCount; i++) {
+                        const val = (getFftValue(i, barCount, bufferLength, dataArray, state.visuals.fftAlgorithm) / 255) * state.visuals.sensitivity * currentHeight * 2.0;
+                        const x = startX + i * (barWidth + _gbSpread);
+                        ctx.roundRect(x + 2, baseTop, barWidth - 4, val, [0, 0, 8, 8]);
+                    }
+                    fillWithHDRBloom(ctx, glowColor, fillTop);
                 }
-
-                // Bottom giant bars
-                ctx.beginPath();
-                for (let i = 0; i < barCount; i++) {
-                    const dataIdx = Math.floor((i / barCount) * (bufferLength * 0.5));
-                    const val = (dataArray[dataIdx] / 255) * state.visuals.sensitivity * currentHeight * 2.0;
-                    const x = startX + i * barWidth;
-                    ctx.roundRect(x + 2, baseBottom - val, barWidth - 4, val, [8, 8, 0, 0]);
-                }
-                fillWithHDRBloom(ctx, glowColor, fillBottom);
-
-                // Top giant bars
-                ctx.beginPath();
-                for (let i = 0; i < barCount; i++) {
-                    const dataIdx = Math.floor((i / barCount) * (bufferLength * 0.5));
-                    const val = (dataArray[dataIdx] / 255) * state.visuals.sensitivity * currentHeight * 2.0;
-                    const x = startX + i * barWidth;
-                    ctx.roundRect(x + 2, baseTop, barWidth - 4, val, [0, 0, 8, 8]);
-                }
-                fillWithHDRBloom(ctx, glowColor, fillTop);
-
                 ctx.restore();
             } else {
                 // Standard giantBars: respects position (yBase) perfectly!
                 const baseBottom = yBase + state.visuals.waveShiftY;
-                let fillBar;
-                if (rawColor.startsWith('gradient:')) {
-                    fillBar = colorHex;
+                
+                if (state.visuals.barSegmented) {
+                    const segH = state.visuals.segmentHeight || 8;
+                    const segGap = state.visuals.segmentGap || 2;
+                    const totalSegH = segH + segGap;
+                    const maxSegs = Math.ceil(currentHeight * 2.0 / totalSegH);
+                    if (!window._barPeaks) { window._barPeaks = []; window._barPeakDecay = []; }
+                    const gbVals = new Float32Array(barCount);
+                    const gbPeakSegs = new Float32Array(barCount);
+                    for (let i = 0; i < barCount; i++) {
+                        const val = (getFftValue(i, barCount, bufferLength, dataArray, state.visuals.fftAlgorithm) / 255) * state.visuals.sensitivity * currentHeight * 2.0;
+                        gbVals[i] = val;
+                        if (window._barPeaks[i] === undefined) { window._barPeaks[i] = 0; window._barPeakDecay[i] = 0; }
+                        if (val >= window._barPeaks[i]) { window._barPeaks[i] = val; window._barPeakDecay[i] = 15; }
+                        else if (window._barPeakDecay[i] > 0) { window._barPeakDecay[i]--; }
+                        else { const fs = (state.visuals.peakDecay !== undefined ? state.visuals.peakDecay : 1.5) * 3; window._barPeaks[i] -= fs; if (window._barPeaks[i] < 0) window._barPeaks[i] = 0; }
+                        gbPeakSegs[i] = Math.floor(window._barPeaks[i] / totalSegH);
+                    }
+                    const _gbNmFill = (pathFn, color) => {
+                        ctx.beginPath(); pathFn();
+                        fillWithHDRBloom(ctx, getGlowColor(color), color, false, true, null, true);
+                    };
+                    if (state.visuals.classicColors) {
+                        const tiers = [
+                            { c: '#10b981', lo: 0.0, hi: 0.5 }, { c: '#fbbf24', lo: 0.5, hi: 0.75 },
+                            { c: '#f97316', lo: 0.75, hi: 0.9 }, { c: '#ef4444', lo: 0.9, hi: 1.01 },
+                        ];
+                        for (const tier of tiers) {
+                            const sMin = Math.floor(tier.lo * maxSegs);
+                            const sMax = Math.ceil(tier.hi * maxSegs);
+                            _gbNmFill(() => {
+                                for (let i = 0; i < barCount; i++) {
+                                    const x = startX + i * (barWidth + _gbSpread);
+                                    const active = Math.min(Math.floor(gbVals[i] / totalSegH), sMax);
+                                    for (let s = sMin; s < active; s++) {
+                                        ctx.rect(x + 2, baseBottom - s * totalSegH - segH, barWidth - 4, segH);
+                                    }
+                                }
+                            }, tier.c);
+                        }
+                    } else {
+                        _gbNmFill(() => {
+                            for (let i = 0; i < barCount; i++) {
+                                const x = startX + i * (barWidth + _gbSpread);
+                                const active = Math.floor(gbVals[i] / totalSegH);
+                                for (let s = 0; s < active; s++) {
+                                    ctx.rect(x + 2, baseBottom - s * totalSegH - segH, barWidth - 4, segH);
+                                }
+                            }
+                        }, colorHex);
+                    }
+                    if (state.visuals.peakChase) {
+                        const peakColor = (state.visuals.peakCustomColorEnabled && state.visuals.peakColor) ? state.visuals.peakColor : (state.visuals.classicColors ? '#ef4444' : colorHex);
+                        _gbNmFill(() => {
+                            for (let i = 0; i < barCount; i++) {
+                                const x = startX + i * (barWidth + _gbSpread);
+                                const active = Math.floor(gbVals[i] / totalSegH);
+                                if (gbPeakSegs[i] > 0 && gbPeakSegs[i] >= active) {
+                                    ctx.rect(x + 2, baseBottom - gbPeakSegs[i] * totalSegH - segH, barWidth - 4, segH);
+                                }
+                            }
+                        }, peakColor);
+                    }
+                    ctx.shadowColor = 'transparent';
+                    ctx.shadowBlur = 0;
                 } else {
-                    fillBar = ctx.createLinearGradient(0, baseBottom, 0, baseBottom - currentHeight * 2.0);
-                    fillBar.addColorStop(0, 'rgba(0, 0, 0, 0)');
-                    fillBar.addColorStop(0.4, colorHex);
-                    fillBar.addColorStop(1, 'rgba(255, 255, 255, 0.45)');
-                }
+                    let fillBar;
+                    if (rawColor.startsWith('gradient:')) {
+                        fillBar = colorHex;
+                    } else {
+                        fillBar = ctx.createLinearGradient(0, baseBottom, 0, baseBottom - currentHeight * 2.0);
+                        fillBar.addColorStop(0, 'rgba(0, 0, 0, 0)');
+                        fillBar.addColorStop(0.4, colorHex);
+                        fillBar.addColorStop(1, 'rgba(255, 255, 255, 0.45)');
+                    }
 
-                ctx.beginPath();
-                for (let i = 0; i < barCount; i++) {
-                    const dataIdx = Math.floor((i / barCount) * (bufferLength * 0.5));
-                    const val = (dataArray[dataIdx] / 255) * state.visuals.sensitivity * currentHeight * 2.0;
-                    const x = startX + i * barWidth;
-                    const y = baseBottom - val;
-                    ctx.roundRect(x + 2, y, barWidth - 4, val, [8, 8, 0, 0]);
+                    ctx.beginPath();
+                    for (let i = 0; i < barCount; i++) {
+                        const val = (getFftValue(i, barCount, bufferLength, dataArray, state.visuals.fftAlgorithm) / 255) * state.visuals.sensitivity * currentHeight * 2.0;
+                        const x = startX + i * (barWidth + _gbSpread);
+                        const y = baseBottom - val;
+                        ctx.roundRect(x + 2, y, barWidth - 4, val, [8, 8, 0, 0]);
+                    }
+                    fillWithHDRBloom(ctx, glowColor, fillBar);
                 }
-                fillWithHDRBloom(ctx, glowColor, fillBar);
             }
             
         } else if (state.visuals.style === 'circular') {
             const centerX = width / 2 + state.visuals.waveShiftX;
             const centerY = yBase;
-            const baseRadius = (currentHeight * 0.5);
             
-            ctx.beginPath();
-            const orbGrad = ctx.createRadialGradient(centerX, centerY, 5, centerX, centerY, baseRadius);
-            orbGrad.addColorStop(0, 'rgba(255, 255, 255, 0.2)');
-            orbGrad.addColorStop(0.8, rawColor === 'transparent' ? 'transparent' : (rawColor.startsWith('gradient:') ? 'rgba(99, 102, 241, 0.05)' : colorHex));
-            orbGrad.addColorStop(1, 'rgba(0, 0, 0, 0)');
-            ctx.fillStyle = orbGrad;
-            ctx.arc(centerX, centerY, baseRadius, 0, Math.PI * 2);
-            ctx.fill();
+            const radiusScale = state.visuals.circularPulse ? (1.0 + (pulseScale - 1.0) * 0.6) : 1.0;
+            const baseRadius = (state.visuals.circularRadius || 150) * radiusScale;
             
             const numRays = 120;
-            ctx.beginPath();
-            for (let i = 0; i < numRays; i++) {
-                const angle = (i / numRays) * Math.PI * 2;
-                const dataIdx = Math.floor((Math.abs(numRays/2 - i) / (numRays/2)) * (bufferLength * 0.5));
-                const val = (dataArray[dataIdx] / 255) * state.visuals.sensitivity * currentHeight * 0.6;
-                const xStart = centerX + Math.cos(angle) * baseRadius;
-                const yStart = centerY + Math.sin(angle) * baseRadius;
-                const xEnd = centerX + Math.cos(angle) * (baseRadius + Math.max(2, val));
-                const yEnd = centerY + Math.sin(angle) * (baseRadius + Math.max(2, val));
-                
-                ctx.moveTo(xStart, yStart);
-                ctx.lineTo(xEnd, yEnd);
+            const barWidth = state.visuals.barWidth || 4;
+            
+            ctx.save();
+            ctx.lineWidth = barWidth;
+            ctx.lineCap = 'round';
+            
+            if (state.visuals.barSegmented) {
+                const segHeight = state.visuals.segmentHeight || 8;
+                const segGap = state.visuals.segmentGap || 2;
+                const totalSegH = segHeight + segGap;
+
+                if (!window._circularPeaks) { window._circularPeaks = []; window._circularPeakDecay = []; }
+
+                const maxVal = currentHeight * 0.6;
+                const maxSegs = Math.ceil(maxVal / totalSegH);
+
+                // Pre-compute all values first, then batch-draw by color tier
+                const segVals = new Float32Array(numRays);
+                const peakSegArr = new Int32Array(numRays);
+                for (let i = 0; i < numRays; i++) {
+                    const val = (getFftValue(i, numRays, bufferLength, dataArray, state.visuals.fftAlgorithm) / 255) * state.visuals.sensitivity * maxVal;
+                    segVals[i] = val;
+                    if (window._circularPeaks[i] === undefined) { window._circularPeaks[i] = 0; window._circularPeakDecay[i] = 0; }
+                    if (val >= window._circularPeaks[i]) { window._circularPeaks[i] = val; window._circularPeakDecay[i] = 15; }
+                    else if (window._circularPeakDecay[i] > 0) { window._circularPeakDecay[i]--; }
+                    else { const fs = (state.visuals.peakDecay !== undefined ? state.visuals.peakDecay : 1.5) * 3; window._circularPeaks[i] -= fs; if (window._circularPeaks[i] < 0) window._circularPeaks[i] = 0; }
+                    peakSegArr[i] = Math.floor(window._circularPeaks[i] / totalSegH);
+                }
+
+                // Pre-cache trig per ray — cos/sin are expensive; don't recompute inside the segment loop
+                const rotOffset = (state.visuals.circularRotation || 0) * Math.PI / 180;
+                const cosArr = new Float32Array(numRays);
+                const sinArr = new Float32Array(numRays);
+                for (let i = 0; i < numRays; i++) {
+                    const angle = (i / numRays) * Math.PI * 2 + rotOffset;
+                    cosArr[i] = Math.cos(angle);
+                    sinArr[i] = Math.sin(angle);
+                }
+
+                if (state.visuals.classicColors) {
+                    const tiers = [
+                        { c: '#10b981', lo: 0,    hi: 0.5  },
+                        { c: '#fbbf24', lo: 0.5,  hi: 0.75 },
+                        { c: '#f97316', lo: 0.75, hi: 0.9  },
+                        { c: '#ef4444', lo: 0.9,  hi: 1.01 },
+                    ];
+                    for (const tier of tiers) {
+                        const sMin = Math.floor(tier.lo * maxSegs);
+                        const sMax = Math.ceil(tier.hi * maxSegs);
+                        ctx.beginPath();
+                        for (let i = 0; i < numRays; i++) {
+                            const ca = cosArr[i], sa = sinArr[i];
+                            const drawMax = Math.min(Math.floor(segVals[i] / totalSegH), sMax);
+                            for (let s = sMin; s < drawMax; s++) {
+                                const rS = baseRadius + s * totalSegH;
+                                ctx.moveTo(centerX + ca * rS,                centerY + sa * rS);
+                                ctx.lineTo(centerX + ca * (rS + segHeight),  centerY + sa * (rS + segHeight));
+                            }
+                        }
+                        strokeWithHDRBloom(ctx, getGlowColor(tier.c), tier.c, barWidth, false, true);
+                    }
+                } else {
+                    ctx.beginPath();
+                    for (let i = 0; i < numRays; i++) {
+                        const ca = cosArr[i], sa = sinArr[i];
+                        const activeSegs = Math.floor(segVals[i] / totalSegH);
+                        for (let s = 0; s < activeSegs; s++) {
+                            const rS = baseRadius + s * totalSegH;
+                            ctx.moveTo(centerX + ca * rS,               centerY + sa * rS);
+                            ctx.lineTo(centerX + ca * (rS + segHeight), centerY + sa * (rS + segHeight));
+                        }
+                    }
+                    strokeWithHDRBloom(ctx, glowColor, colorHex, barWidth, false, true);
+                }
+
+                if (state.visuals.peakChase) {
+                    const peakColor = (state.visuals.peakCustomColorEnabled && state.visuals.peakColor) ? state.visuals.peakColor : (state.visuals.classicColors ? '#ef4444' : colorHex);
+                    ctx.beginPath();
+                    for (let i = 0; i < numRays; i++) {
+                        const ca = cosArr[i], sa = sinArr[i];
+                        const activeSegs = Math.floor(segVals[i] / totalSegH);
+                        if (peakSegArr[i] > 0 && peakSegArr[i] >= activeSegs) {
+                            const rS = baseRadius + peakSegArr[i] * totalSegH;
+                            ctx.moveTo(centerX + ca * rS,               centerY + sa * rS);
+                            ctx.lineTo(centerX + ca * (rS + segHeight), centerY + sa * (rS + segHeight));
+                        }
+                    }
+                    strokeWithHDRBloom(ctx, getGlowColor(peakColor), peakColor, barWidth, false, true);
+                }
+
+                ctx.shadowColor = 'transparent';
+                ctx.shadowBlur = 0;
+            } else {
+                ctx.beginPath();
+                ctx.strokeStyle = colorHex;
+                for (let i = 0; i < numRays; i++) {
+                    const angle = (i / numRays) * Math.PI * 2 + (state.visuals.circularRotation || 0) * Math.PI / 180;
+                    const val = (getFftValue(i, numRays, bufferLength, dataArray, state.visuals.fftAlgorithm) / 255) * state.visuals.sensitivity * currentHeight * 0.6;
+                    const xStart = centerX + Math.cos(angle) * baseRadius;
+                    const yStart = centerY + Math.sin(angle) * baseRadius;
+                    const xEnd = centerX + Math.cos(angle) * (baseRadius + Math.max(2, val));
+                    const yEnd = centerY + Math.sin(angle) * (baseRadius + Math.max(2, val));
+                    
+                    ctx.moveTo(xStart, yStart);
+                    ctx.lineTo(xEnd, yEnd);
+                }
+                strokeWithHDRBloom(ctx, glowColor, colorHex, barWidth);
             }
-            strokeWithHDRBloom(ctx, glowColor, colorHex, 4);
+            ctx.restore();
+            
+// Note: Three.js initialization moved to global scope
+
+        } else if (state.visuals.style === 'radialBurst') {
+            ctx.save();
+            const rbCenterX = width / 2 + state.visuals.waveShiftX;
+            const rbCenterY = yBase;
+            const rbCount = 128;
+            const rbInnerR = Math.max(20, (state.visuals.circularRadius || 80) * 0.9);
+            const rbMaxH = currentHeight * 0.92;
+            const rbBw = Math.max(2, (state.visuals.barWidth || 6) * 0.85);
+
+            ctx.beginPath();
+            for (let i = 0; i < rbCount; i++) {
+                const angle = (i / rbCount) * Math.PI * 2 - Math.PI / 2 + (state.visuals.circularRotation || 0) * Math.PI / 180;
+                const val = (getFftValue(i, rbCount, bufferLength, dataArray, state.visuals.fftAlgorithm) / 255) * state.visuals.sensitivity * rbMaxH;
+                const r2 = rbInnerR + Math.max(2, val);
+                ctx.moveTo(rbCenterX + Math.cos(angle) * rbInnerR, rbCenterY + Math.sin(angle) * rbInnerR);
+                ctx.lineTo(rbCenterX + Math.cos(angle) * r2,       rbCenterY + Math.sin(angle) * r2);
+            }
+            strokeWithHDRBloom(ctx, glowColor, colorHex, rbBw, false);
+
+            // Inner anchor ring
+            ctx.beginPath();
+            ctx.arc(rbCenterX, rbCenterY, rbInnerR, 0, Math.PI * 2);
+            strokeWithHDRBloom(ctx, glowColor, colorHex, 2.5, false);
+            ctx.restore();
         }
         ctx.restore();
     }

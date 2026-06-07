@@ -404,3 +404,51 @@
     height: 100%;
     padding: 0;
 }
+
+/* Badge Tooltip styles */
+.badge {
+    position: relative;
+    cursor: help;
+    user-select: none;
+}
+
+.badge .tooltip {
+    visibility: hidden;
+    width: 280px;
+    background: rgba(15, 23, 42, 0.95);
+    color: var(--text-secondary);
+    text-align: left;
+    border-radius: 8px;
+    padding: 0.75rem 1rem;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.5), 0 8px 10px -6px rgba(0, 0, 0, 0.5);
+    backdrop-filter: blur(12px);
+    font-size: 0.75rem;
+    line-height: 1.4;
+    font-weight: 400;
+    font-family: 'Inter', sans-serif;
+    
+    /* Position the tooltip */
+    position: absolute;
+    z-index: 1000;
+    top: 125%;
+    right: 0;
+    opacity: 0;
+    transition: opacity 0.3s, transform 0.3s;
+    transform: translateY(-5px);
+    pointer-events: none;
+    white-space: normal;
+}
+
+.badge .tooltip strong {
+    color: var(--text-primary);
+    display: block;
+    margin-bottom: 0.25rem;
+}
+
+.badge:hover .tooltip {
+    visibility: visible;
+    opacity: 1;
+    transform: translateY(0);
+}
+

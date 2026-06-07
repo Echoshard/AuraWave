@@ -34,8 +34,20 @@
                 </button>
             </div>
             <div class="header-badges">
-                <span class="badge"><i class="fa-solid fa-bolt"></i> GPU Accelerated</span>
-                <span class="badge secondary"><i class="fa-solid fa-server"></i> Server-side FFmpeg</span>
+                <span class="badge" id="badge-gpu" style="display: none;">
+                    <i class="fa-solid fa-bolt"></i> GPU Accelerated
+                    <span class="tooltip">
+                        <strong>WebCodecs GPU Encoder</strong>
+                        Uses the browser's hardware-accelerated WebCodecs API (VideoEncoder) to compile frames at GPU speeds.
+                    </span>
+                </span>
+                <span class="badge secondary" id="badge-ffmpeg">
+                    <i class="fa-solid fa-server"></i> Server-side FFmpeg
+                    <span class="tooltip">
+                        <strong>Server Render Video - FFmpeg H.264 / AAC</strong>
+                        Your visualizer is built using high-performance server-side FFmpeg compilers. This encodes a standard-compliant, highly compatible H.264 MP4 with AAC audio at visually lossless quality, guaranteed to play flawlessly on Windows Media Player, macOS, iOS, Android, and social media.
+                    </span>
+                </span>
             </div>
         </header>
 
@@ -327,10 +339,6 @@
                                 <div class="setting-group">
                                     <label class="setting-label">Visualizer Style</label>
                                     <div class="style-selector-grid">
-                                        <div class="style-card active" data-style="wave">
-                                            <i class="fa-solid fa-wave-square"></i>
-                                            <span>Neon Wave</span>
-                                        </div>
                                         <div class="style-card" data-style="bars">
                                             <i class="fa-solid fa-chart-simple"></i>
                                             <span>Retro Bars</span>
@@ -343,9 +351,17 @@
                                             <i class="fa-solid fa-circle-notch"></i>
                                             <span>Circular Pulsar</span>
                                         </div>
+                                        <div class="style-card" data-style="radialBurst">
+                                            <i class="fa-solid fa-burst"></i>
+                                            <span>Radial Burst</span>
+                                        </div>
                                         <div class="style-card" data-style="shapes">
                                             <i class="fa-solid fa-shapes"></i>
                                             <span>Glowing Shapes</span>
+                                        </div>
+                                        <div class="style-card" data-style="wave">
+                                            <i class="fa-solid fa-wave-square"></i>
+                                            <span>Neon Wave</span>
                                         </div>
                                     </div>
                                 </div>
@@ -365,7 +381,7 @@
                                         <span>Sensitivity</span>
                                         <span class="val-display" id="sens-val">1.2x</span>
                                     </label>
-                                    <input type="range" id="waveform-sensitivity" min="0.5" max="3" step="0.1" value="1.2" class="slider-input">
+                                    <input type="range" id="waveform-sensitivity" min="0.5" max="5" step="0.1" value="1.2" class="slider-input">
                                 </div>
 
                                 <!-- Waveform Height -->
@@ -380,10 +396,18 @@
                                 <!-- Symmetrical Bars width group -->
                                 <div class="setting-group" id="bar-width-group">
                                     <label class="setting-label-row">
-                                        <span>Bar Width & Spacing</span>
+                                        <span>Bar Width</span>
                                         <span class="val-display" id="bar-val">6px</span>
                                     </label>
                                     <input type="range" id="waveform-bar-width" min="2" max="24" step="1" value="6" class="slider-input">
+                                </div>
+                                <!-- Bar Spread group -->
+                                <div class="setting-group" id="bar-spread-group">
+                                    <label class="setting-label-row">
+                                        <span>Bar Spread</span>
+                                        <span class="val-display" id="bar-spread-val">4px</span>
+                                    </label>
+                                    <input type="range" id="bar-spread" min="0" max="30" step="1" value="4" class="slider-input">
                                 </div>
 
                                 <!-- Mirrored Visualizer Group (NEW) -->
@@ -395,7 +419,7 @@
                                             <span class="slider"></span>
                                         </label>
                                     </div>
-                                    <p class="fx-desc" style="margin-top: 0.25rem; margin-bottom: 0;">Renders mirrored copies of the visualizer on both top and bottom edges of the screen.</p>
+                                    <p class="fx-desc" style="margin-top: 0.25rem; margin-bottom: 0.5rem;">Renders mirrored copies of the visualizer on both top and bottom edges of the screen.</p>
                                 </div>
 
                                 <!-- FFT Smoothing Slider -->
@@ -405,6 +429,111 @@
                                         <span class="val-display" id="smooth-val">0.8</span>
                                     </label>
                                     <input type="range" id="waveform-smoothing" min="0.5" max="0.95" step="0.05" value="0.8" class="slider-input">
+                                </div>
+
+                                <!-- FFT Frequency Mapping Algorithm -->
+                                <div class="setting-group" id="fft-algorithm-group" style="border-top: 1px solid rgba(255,255,255,0.06); padding-top: 1rem; margin-top: 1rem;">
+                                    <label class="setting-label">FFT Mapping Algorithm</label>
+                                    <select id="waveform-fft-algorithm" class="select-input">
+                                        <option value="linear" selected>Linear (Standard)</option>
+                                        <option value="logarithmic">Logarithmic (Natural Bass)</option>
+                                        <option value="symmetric">Symmetric Mirror (Balanced)</option>
+                                        <option value="quad">Quad Mirror (Mandala Spike)</option>
+                                        <option value="sweep">Circular Sweep (Clockwise)</option>
+                                    </select>
+                                </div>
+
+                                <!-- Circular Pulsar & 3D Ball Settings Group -->
+                                <div class="setting-group" id="circular-settings-group" style="display: none; border-top: 1px solid rgba(255,255,255,0.06); padding-top: 1rem; margin-top: 1rem;">
+                                    <label class="setting-label" style="color: #a5b4fc;">Circular Settings</label>
+                                    
+                                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.75rem;">
+                                        <span style="font-size: 0.85rem; font-weight: 500; color: var(--text-secondary);">Pulse with Audio Beat</span>
+                                        <label class="toggle-switch">
+                                            <input type="checkbox" id="circular-pulse" checked>
+                                            <span class="slider"></span>
+                                        </label>
+                                    </div>
+                                    
+                                    <div class="setting-group" style="margin-bottom: 0.75rem;">
+                                        <label class="setting-label-row">
+                                            <span>Interior Base Size (Radius)</span>
+                                            <span class="val-display" id="circular-radius-val">150px</span>
+                                        </label>
+                                        <input type="range" id="circular-radius" min="20" max="450" step="5" value="150" class="slider-input">
+                                    </div>
+                                    <div class="setting-group" style="margin-bottom: 0;">
+                                        <label class="setting-label-row">
+                                            <span>Start Rotation</span>
+                                            <span class="val-display" id="circular-rotation-val">0°</span>
+                                        </label>
+                                        <input type="range" id="circular-rotation" min="0" max="360" step="1" value="0" class="slider-input">
+                                    </div>
+                                </div>
+
+                                <!-- Segmented Bars & Peak Chase Controls -->
+                                <div class="setting-group" id="segmented-bars-group" style="display: none; border-top: 1px solid rgba(255,255,255,0.06); padding-top: 1rem; margin-top: 1rem;">
+                                    <label class="setting-label" style="color: #a5b4fc;">Segmented Bars & Peaks</label>
+                                    
+                                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.75rem;">
+                                        <span style="font-size: 0.85rem; font-weight: 500; color: var(--text-secondary);">Enable Segments</span>
+                                        <label class="toggle-switch">
+                                            <input type="checkbox" id="bar-segmented">
+                                            <span class="slider"></span>
+                                        </label>
+                                    </div>
+                                    
+                                    <div id="segment-adjustments" style="display: none; flex-direction: column; gap: 0.75rem; margin-bottom: 0.75rem;">
+                                        <div class="setting-group" style="margin-bottom: 0;">
+                                            <label class="setting-label-row">
+                                                <span>Segment Height</span>
+                                                <span class="val-display" id="segment-height-val">8px</span>
+                                            </label>
+                                            <input type="range" id="bar-segment-height" min="2" max="24" step="1" value="8" class="slider-input">
+                                        </div>
+                                        
+                                        <div class="setting-group" style="margin-bottom: 0;">
+                                            <label class="setting-label-row">
+                                                <span>Segment Gap</span>
+                                                <span class="val-display" id="segment-gap-val">2px</span>
+                                            </label>
+                                            <input type="range" id="bar-segment-gap" min="1" max="10" step="1" value="2" class="slider-input">
+                                        </div>
+                                    </div>
+
+                                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.75rem;">
+                                        <span style="font-size: 0.85rem; font-weight: 500; color: var(--text-secondary);">Peak Chase</span>
+                                        <label class="toggle-switch">
+                                            <input type="checkbox" id="bar-peak-chase">
+                                            <span class="slider"></span>
+                                        </label>
+                                    </div>
+
+                                    <div id="peak-chase-controls" style="display: none; flex-direction: column; gap: 0.75rem; margin-left: 0.5rem; border-left: 2px solid var(--accent-alpha-10); padding-left: 0.75rem; margin-bottom: 0.75rem;">
+                                        <div class="setting-group" style="margin-bottom: 0;">
+                                            <label class="setting-label-row">
+                                                <span>Peak Fall Speed</span>
+                                                <span class="val-display" id="peak-decay-val">1.5</span>
+                                            </label>
+                                            <input type="range" id="bar-peak-decay" min="0.2" max="5.0" step="0.1" value="1.5" class="slider-input">
+                                        </div>
+                                        
+                                        <div style="display: flex; justify-content: space-between; align-items: center;">
+                                            <span style="font-size: 0.85rem; font-weight: 500; color: var(--text-secondary);">Custom Peak Color</span>
+                                            <div style="display: flex; align-items: center; gap: 0.5rem;">
+                                                <input type="checkbox" id="bar-peak-custom-color-enabled" style="margin-right: 0.25rem;">
+                                                <input type="color" id="bar-peak-color" value="#ef4444" class="color-circle-input" style="height: 28px; width: 28px; padding: 0; border: none; cursor: pointer; border-radius: 50%;">
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    <div style="display: flex; justify-content: space-between; align-items: center;">
+                                        <span style="font-size: 0.85rem; font-weight: 500; color: var(--text-secondary);">Classic LED Colors</span>
+                                        <label class="toggle-switch">
+                                            <input type="checkbox" id="bar-classic-colors">
+                                            <span class="slider"></span>
+                                        </label>
+                                    </div>
                                 </div>
                             </div>
                         </div>
@@ -484,7 +613,7 @@
                                             <span>Base Shape Size</span>
                                             <span class="val-display" id="shape-size-val">320px</span>
                                         </label>
-                                        <input type="range" id="shape-size" min="100" max="500" step="10" value="320" class="slider-input">
+                                        <input type="range" id="shape-size" min="100" max="1000" step="10" value="320" class="slider-input">
                                     </div>
 
                                     <div class="setting-group" style="margin-bottom: 0.75rem;">
@@ -496,21 +625,29 @@
                                     </div>
 
                                     <div class="setting-group" style="margin-bottom: 0.75rem;">
-                                        <label class="setting-label">Beat Reactive Options</label>
+                                        <label class="setting-label-row">
+                                            <span>Reactivity Floor</span>
+                                            <span class="val-display" id="shape-glow-threshold-val">0%</span>
+                                        </label>
+                                        <input type="range" id="shape-glow-threshold" min="0.0" max="0.8" step="0.01" value="0.0" class="slider-input">
+                                    </div>
+
+                                    <div class="setting-group" style="margin-bottom: 0.75rem;">
+                                        <label class="setting-label">Volume Reactive Options</label>
                                         <div style="display: flex; gap: 1.5rem; align-items: center; margin-top: 0.5rem;">
                                             <div style="display: flex; align-items: center; gap: 0.6rem;">
                                                 <label class="toggle-switch">
                                                     <input type="checkbox" id="shape-scale-reactive" checked>
                                                     <span class="slider"></span>
                                                 </label>
-                                                <span style="font-size: 0.8rem; font-weight: 500; color: var(--text-secondary);">Scale Beat</span>
+                                                <span style="font-size: 0.8rem; font-weight: 500; color: var(--text-secondary);">Scale</span>
                                             </div>
                                             <div style="display: flex; align-items: center; gap: 0.6rem;">
                                                 <label class="toggle-switch">
                                                     <input type="checkbox" id="shape-glow-reactive" checked>
                                                     <span class="slider"></span>
                                                 </label>
-                                                <span style="font-size: 0.8rem; font-weight: 500; color: var(--text-secondary);">Glow Beat</span>
+                                                <span style="font-size: 0.8rem; font-weight: 500; color: var(--text-secondary);">Glow</span>
                                             </div>
                                         </div>
                                     </div>
@@ -962,18 +1099,15 @@
                         <h2 class="section-title" style="margin: 0;"><i class="fa-solid fa-server text-glow-blue"></i> Server Render Video</h2>
                         <span class="version-badge">FFmpeg H.264 / AAC</span>
                     </div>
-
-                    <div style="background: rgba(255, 255, 255, 0.03); border: 1px solid rgba(255, 255, 255, 0.06); padding: 1rem; border-radius: 12px; margin-bottom: 1.5rem;">
-                        <p style="font-size: 0.85rem; line-height: 1.5; color: var(--text-secondary); margin: 0;">
-                            Your visualizer is built using high-performance server-side FFmpeg compilers. 
-                            This encodes a standard-compliant, highly compatible <strong>H.264 MP4 with AAC audio</strong> at visually lossless quality, guaranteed to play flawlessly on Windows Media Player, macOS, iOS, Android, and social media.
-                        </p>
-                    </div>
-
                     <!-- Rendering trigger action button -->
-                    <button class="render-trigger-btn" id="btn-export">
-                        <i class="fa-solid fa-film"></i> Compile & Download Visual Video
-                    </button>
+                    <div style="display: flex; gap: 0.75rem; width: 100%;">
+                        <button class="render-trigger-btn" id="btn-export-preview" style="flex: 0 0 calc(25% - 0.5625rem); background: rgba(99,102,241,0.18); border-color: rgba(99,102,241,0.4); font-size: 0.85rem; padding: 0.75rem 0.5rem; text-align: center; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;" title="Render Preview">
+                            <i class="fa-solid fa-eye"></i> Render Preview
+                        </button>
+                        <button class="render-trigger-btn" id="btn-export" style="flex: 0 0 calc(75% - 0.1875rem);">
+                            <i class="fa-solid fa-film"></i> Render Full Video
+                        </button>
+                    </div>
                 </div>
             </section>
         </main>
@@ -1114,6 +1248,7 @@
     </div>
 
     <!-- Load JavaScript files -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
     <script src="/static/js/presets.js"></script>
     <script src="/static/js/core.js"></script>
     <script src="/static/js/synth.js"></script>

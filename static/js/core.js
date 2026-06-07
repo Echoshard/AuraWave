@@ -18,7 +18,7 @@ const state = {
         audioUrl: null
     },
     visuals: {
-        style: 'wave', // wave, bars, circular, particles
+        style: 'bars',
         color: '#6366f1',
         sensitivity: 1.2,
         height: 250,
@@ -49,6 +49,7 @@ const state = {
         shapeScaleReactive: true,
         shapeGlowReactive: true,
         shapeGlowStrength: 1.0,
+        shapeGlowThreshold: 0.0,
         waveOpacity: 1.0,
         waveShiftX: 0,
         waveShiftY: 0,
@@ -63,6 +64,19 @@ const state = {
         glowColorMode: 'inherit',
         glowColor: '#a5b4fc',
         mirrorEnabled: false,
+        fftAlgorithm: 'linear',
+        barSpread: 4,
+        barSegmented: false,
+        segmentHeight: 8,
+        segmentGap: 2,
+        peakChase: false,
+        peakDecay: 1.5,
+        peakCustomColorEnabled: false,
+        peakColor: '#ef4444',
+        classicColors: false,
+        circularRadius: 150,
+        circularRotation: 0,
+        circularPulse: true,
         waveFolderColorOpen: true,
         waveFolderSettingsOpen: false,
         waveFolderPositionOpen: false,
@@ -212,6 +226,9 @@ document.addEventListener('DOMContentLoaded', () => {
     elements.barVal = document.getElementById('bar-val');
     elements.smoothVal = document.getElementById('smooth-val');
     elements.barWidthGroup = document.getElementById('bar-width-group');
+    elements.barSpread = document.getElementById('bar-spread');
+    elements.barSpreadVal = document.getElementById('bar-spread-val');
+    elements.barSpreadGroup = document.getElementById('bar-spread-group');
     
     // Master Glow and Mirrored Visualizer elements (NEW)
     elements.glowEnabled = document.getElementById('waveform-glow-enabled');
@@ -228,6 +245,23 @@ document.addEventListener('DOMContentLoaded', () => {
     elements.glowIntensityControls = document.getElementById('glow-intensity-controls');
     elements.mirrorToggleGroup = document.getElementById('mirror-toggle-group');
     elements.waveformMirror = document.getElementById('waveform-mirror');
+    
+    // FFT and Segmented Bar elements (NEW)
+    elements.fftAlgorithm = document.getElementById('waveform-fft-algorithm');
+    elements.segmentedBarsGroup = document.getElementById('segmented-bars-group');
+    elements.barSegmented = document.getElementById('bar-segmented');
+    elements.segmentAdjustments = document.getElementById('segment-adjustments');
+    elements.barSegmentHeight = document.getElementById('bar-segment-height');
+    elements.segmentHeightVal = document.getElementById('segment-height-val');
+    elements.barSegmentGap = document.getElementById('bar-segment-gap');
+    elements.segmentGapVal = document.getElementById('segment-gap-val');
+    elements.barPeakChase = document.getElementById('bar-peak-chase');
+    elements.barPeakDecay = document.getElementById('bar-peak-decay');
+    elements.peakDecayVal = document.getElementById('peak-decay-val');
+    elements.barPeakCustomColorEnabled = document.getElementById('bar-peak-custom-color-enabled');
+    elements.barPeakColor = document.getElementById('bar-peak-color');
+    elements.peakChaseControls = document.getElementById('peak-chase-controls');
+    elements.barClassicColors = document.getElementById('bar-classic-colors');
     
     elements.fxBeatPulse = document.getElementById('fx-beat-pulse');
     elements.beatPulseControls = document.getElementById('beat-pulse-controls');
@@ -263,6 +297,8 @@ document.addEventListener('DOMContentLoaded', () => {
     elements.shapeSizeVal = document.getElementById('shape-size-val');
     elements.shapeGlowStrength = document.getElementById('shape-glow-strength');
     elements.shapeGlowStrengthVal = document.getElementById('shape-glow-strength-val');
+    elements.shapeGlowThreshold = document.getElementById('shape-glow-threshold');
+    elements.shapeGlowThresholdVal = document.getElementById('shape-glow-threshold-val');
     elements.shapeScaleReactive = document.getElementById('shape-scale-reactive');
     elements.shapeGlowReactive = document.getElementById('shape-glow-reactive');
     
@@ -341,6 +377,14 @@ document.addEventListener('DOMContentLoaded', () => {
     elements.btnCancelRender = document.getElementById('btn-cancel-render');
     elements.btnDownloadExport = document.getElementById('btn-download-export');
     elements.btnCloseModal = document.getElementById('btn-close-modal');
+    elements.badgeGpu = document.getElementById('badge-gpu');
+    elements.badgeFfmpeg = document.getElementById('badge-ffmpeg');
+    elements.circularSettingsGroup = document.getElementById('circular-settings-group');
+    elements.circularPulse = document.getElementById('circular-pulse');
+    elements.circularRadius = document.getElementById('circular-radius');
+    elements.circularRadiusVal = document.getElementById('circular-radius-val');
+    elements.circularRotation = document.getElementById('circular-rotation');
+    elements.circularRotationVal = document.getElementById('circular-rotation-val');
 
     // Get context
     ctx = elements.visualizerCanvas.getContext('2d');
@@ -453,14 +497,28 @@ document.addEventListener('DOMContentLoaded', () => {
             elements.styleCards.forEach(c => c.classList.remove('active'));
             card.classList.add('active');
             state.visuals.style = card.dataset.style;
-            if (state.visuals.style === 'bars') elements.barWidthGroup.style.display = 'block';
-            else elements.barWidthGroup.style.display = 'none';
-            if (state.visuals.style === 'shapes') elements.shapesOptionsGroup.style.display = 'block';
-            else elements.shapesOptionsGroup.style.display = 'none';
             
-            if (elements.mirrorToggleGroup) {
-                elements.mirrorToggleGroup.style.display = (state.visuals.style === 'bars' || state.visuals.style === 'giantBars') ? 'block' : 'none';
+            const style = state.visuals.style;
+            
+            if (elements.barWidthGroup) {
+                elements.barWidthGroup.style.display = (style === 'bars' || style === 'circular' || style === 'radialBurst') ? 'block' : 'none';
             }
+            if (elements.barSpreadGroup) {
+                elements.barSpreadGroup.style.display = (style === 'bars' || style === 'giantBars') ? 'block' : 'none';
+            }
+            if (elements.shapesOptionsGroup) {
+                elements.shapesOptionsGroup.style.display = (style === 'shapes') ? 'block' : 'none';
+            }
+            if (elements.mirrorToggleGroup) {
+                elements.mirrorToggleGroup.style.display = (style === 'bars' || style === 'giantBars') ? 'block' : 'none';
+            }
+            if (elements.segmentedBarsGroup) {
+                elements.segmentedBarsGroup.style.display = (style === 'bars' || style === 'giantBars' || style === 'circular') ? 'block' : 'none';
+            }
+            if (elements.circularSettingsGroup) {
+                elements.circularSettingsGroup.style.display = (style === 'circular' || style === 'radialBurst') ? 'block' : 'none';
+            }
+            
             saveSettingsToLocalStorage();
             triggerRedraw();
         });
@@ -557,6 +615,138 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 
+    if (elements.barSpread) {
+        elements.barSpread.addEventListener('input', (e) => {
+            const val = parseInt(e.target.value);
+            state.visuals.barSpread = val;
+            if (elements.barSpreadVal) elements.barSpreadVal.innerText = `${val}px`;
+            saveSettingsToLocalStorage();
+            triggerRedraw();
+        });
+    }
+
+    if (elements.fftAlgorithm) {
+        elements.fftAlgorithm.addEventListener('change', (e) => {
+            state.visuals.fftAlgorithm = e.target.value;
+            saveSettingsToLocalStorage();
+            triggerRedraw();
+        });
+    }
+
+    if (elements.barSegmented) {
+        elements.barSegmented.addEventListener('change', (e) => {
+            state.visuals.barSegmented = e.target.checked;
+            if (elements.segmentAdjustments) {
+                elements.segmentAdjustments.style.display = e.target.checked ? 'flex' : 'none';
+            }
+            saveSettingsToLocalStorage();
+            triggerRedraw();
+        });
+    }
+
+    if (elements.barSegmentHeight) {
+        elements.barSegmentHeight.addEventListener('input', (e) => {
+            const val = parseInt(e.target.value);
+            state.visuals.segmentHeight = val;
+            if (elements.segmentHeightVal) {
+                elements.segmentHeightVal.innerText = `${val}px`;
+            }
+            saveSettingsToLocalStorage();
+            triggerRedraw();
+        });
+    }
+
+    if (elements.barSegmentGap) {
+        elements.barSegmentGap.addEventListener('input', (e) => {
+            const val = parseInt(e.target.value);
+            state.visuals.segmentGap = val;
+            if (elements.segmentGapVal) {
+                elements.segmentGapVal.innerText = `${val}px`;
+            }
+            saveSettingsToLocalStorage();
+            triggerRedraw();
+        });
+    }
+
+    if (elements.barPeakChase) {
+        elements.barPeakChase.addEventListener('change', (e) => {
+            state.visuals.peakChase = e.target.checked;
+            if (elements.peakChaseControls) {
+                elements.peakChaseControls.style.display = e.target.checked ? 'flex' : 'none';
+            }
+            saveSettingsToLocalStorage();
+            triggerRedraw();
+        });
+    }
+
+    if (elements.barPeakDecay) {
+        elements.barPeakDecay.addEventListener('input', (e) => {
+            const val = parseFloat(e.target.value);
+            state.visuals.peakDecay = val;
+            if (elements.peakDecayVal) {
+                elements.peakDecayVal.innerText = val.toFixed(1);
+            }
+            saveSettingsToLocalStorage();
+            triggerRedraw();
+        });
+    }
+
+    if (elements.barPeakCustomColorEnabled) {
+        elements.barPeakCustomColorEnabled.addEventListener('change', (e) => {
+            state.visuals.peakCustomColorEnabled = e.target.checked;
+            saveSettingsToLocalStorage();
+            triggerRedraw();
+        });
+    }
+
+    if (elements.barPeakColor) {
+        elements.barPeakColor.addEventListener('input', (e) => {
+            state.visuals.peakColor = e.target.value;
+            saveSettingsToLocalStorage();
+            triggerRedraw();
+        });
+    }
+
+    if (elements.barClassicColors) {
+        elements.barClassicColors.addEventListener('change', (e) => {
+            state.visuals.classicColors = e.target.checked;
+            saveSettingsToLocalStorage();
+            triggerRedraw();
+        });
+    }
+
+    if (elements.circularPulse) {
+        elements.circularPulse.addEventListener('change', (e) => {
+            state.visuals.circularPulse = e.target.checked;
+            saveSettingsToLocalStorage();
+            triggerRedraw();
+        });
+    }
+
+    if (elements.circularRadius) {
+        elements.circularRadius.addEventListener('input', (e) => {
+            const val = parseInt(e.target.value);
+            state.visuals.circularRadius = val;
+            if (elements.circularRadiusVal) {
+                elements.circularRadiusVal.innerText = `${val}px`;
+            }
+            saveSettingsToLocalStorage();
+            triggerRedraw();
+        });
+    }
+
+    if (elements.circularRotation) {
+        elements.circularRotation.addEventListener('input', (e) => {
+            const val = parseInt(e.target.value);
+            state.visuals.circularRotation = val;
+            if (elements.circularRotationVal) {
+                elements.circularRotationVal.innerText = `${val}°`;
+            }
+            saveSettingsToLocalStorage();
+            triggerRedraw();
+        });
+    }
+
     elements.waveformSensitivity.addEventListener('input', (e) => {
         const val = parseFloat(e.target.value);
         state.visuals.sensitivity = val;
@@ -642,6 +832,13 @@ document.addEventListener('DOMContentLoaded', () => {
         const val = parseInt(e.target.value);
         state.visuals.shapeSize = val;
         elements.shapeSizeVal.innerText = `${val}px`;
+        triggerRedraw();
+    });
+
+    elements.shapeGlowThreshold.addEventListener('input', (e) => {
+        const val = parseFloat(e.target.value);
+        state.visuals.shapeGlowThreshold = val;
+        elements.shapeGlowThresholdVal.innerText = `${Math.round(val * 100)}%`;
         triggerRedraw();
     });
 
@@ -1508,6 +1705,10 @@ function syncDOMToState() {
         elements.waveformBarWidth.value = state.visuals.barWidth;
         elements.barVal.innerText = `${state.visuals.barWidth}px`;
     }
+    if (elements.barSpread) {
+        elements.barSpread.value = state.visuals.barSpread ?? 4;
+        if (elements.barSpreadVal) elements.barSpreadVal.innerText = `${state.visuals.barSpread ?? 4}px`;
+    }
     if (elements.waveformSmoothing) {
         elements.waveformSmoothing.value = state.visuals.smoothing;
         elements.smoothVal.innerText = state.visuals.smoothing;
@@ -1544,6 +1745,10 @@ function syncDOMToState() {
     if (elements.shapeGlowStrength) {
         elements.shapeGlowStrength.value = state.visuals.shapeGlowStrength;
         elements.shapeGlowStrengthVal.innerText = `${state.visuals.shapeGlowStrength.toFixed(1)}x`;
+    }
+    if (elements.shapeGlowThreshold) {
+        elements.shapeGlowThreshold.value = state.visuals.shapeGlowThreshold;
+        elements.shapeGlowThresholdVal.innerText = `${Math.round(state.visuals.shapeGlowThreshold * 100)}%`;
     }
     if (elements.shapeScaleReactive) elements.shapeScaleReactive.checked = state.visuals.shapeScaleReactive;
     if (elements.shapeGlowReactive) elements.shapeGlowReactive.checked = state.visuals.shapeGlowReactive;
@@ -1695,8 +1900,11 @@ function syncDOMToState() {
             card.classList.remove('active');
         }
     });
-    if (state.visuals.style === 'bars') elements.barWidthGroup.style.display = 'block';
+    if (['bars', 'circular', 'radialBurst'].includes(state.visuals.style)) elements.barWidthGroup.style.display = 'block';
     else elements.barWidthGroup.style.display = 'none';
+    if (elements.barSpreadGroup) {
+        elements.barSpreadGroup.style.display = (state.visuals.style === 'bars' || state.visuals.style === 'giantBars') ? 'block' : 'none';
+    }
     if (state.visuals.style === 'shapes') elements.shapesOptionsGroup.style.display = 'block';
     else elements.shapesOptionsGroup.style.display = 'none';
 
@@ -1763,10 +1971,124 @@ function syncDOMToState() {
 
     // Sync Mirrored Visualizer Controls (NEW)
     if (elements.waveformMirror) elements.waveformMirror.checked = state.visuals.mirrorEnabled;
+    
+    const style = state.visuals.style;
+    const isBarBased = style === 'bars' || style === 'giantBars';
+    const isBarOrCircular = isBarBased || style === 'circular';
+    const isCircularOrDouble = style === 'circular' || style === 'radialBurst';
+
     if (elements.mirrorToggleGroup) {
-        elements.mirrorToggleGroup.style.display = (state.visuals.style === 'bars' || state.visuals.style === 'giantBars') ? 'block' : 'none';
+        elements.mirrorToggleGroup.style.display = isBarBased ? 'block' : 'none';
     }
 
+    // Sync FFT Algorithm
+    if (elements.fftAlgorithm) {
+        elements.fftAlgorithm.value = state.visuals.fftAlgorithm || 'linear';
+    }
 
+    // Sync Segmented Bars Group display
+    if (elements.segmentedBarsGroup) {
+        elements.segmentedBarsGroup.style.display = isBarOrCircular ? 'block' : 'none';
+    }
+    
+    // Sync Circular & 3D Ball Settings
+    if (elements.circularSettingsGroup) {
+        elements.circularSettingsGroup.style.display = isCircularOrDouble ? 'block' : 'none';
+    }
+    if (elements.circularPulse) {
+        elements.circularPulse.checked = state.visuals.circularPulse;
+    }
+    if (elements.circularRadius) {
+        elements.circularRadius.value = state.visuals.circularRadius || 150;
+        if (elements.circularRadiusVal) {
+            elements.circularRadiusVal.innerText = `${state.visuals.circularRadius || 150}px`;
+        }
+    }
+    if (elements.circularRotation) {
+        elements.circularRotation.value = state.visuals.circularRotation || 0;
+        if (elements.circularRotationVal) {
+            elements.circularRotationVal.innerText = `${state.visuals.circularRotation || 0}°`;
+        }
+    }
+
+    // Sync Segmented Bars Controls
+    if (elements.barSegmented) {
+        elements.barSegmented.checked = state.visuals.barSegmented;
+        if (elements.segmentAdjustments) {
+            elements.segmentAdjustments.style.display = state.visuals.barSegmented ? 'flex' : 'none';
+        }
+    }
+    if (elements.barSegmentHeight) {
+        elements.barSegmentHeight.value = state.visuals.segmentHeight || 8;
+        if (elements.segmentHeightVal) {
+            elements.segmentHeightVal.innerText = `${state.visuals.segmentHeight || 8}px`;
+        }
+    }
+    if (elements.barSegmentGap) {
+        elements.barSegmentGap.value = state.visuals.segmentGap || 2;
+        if (elements.segmentGapVal) {
+            elements.segmentGapVal.innerText = `${state.visuals.segmentGap || 2}px`;
+        }
+    }
+    if (elements.barPeakChase) {
+        elements.barPeakChase.checked = state.visuals.peakChase;
+        if (elements.peakChaseControls) {
+            elements.peakChaseControls.style.display = state.visuals.peakChase ? 'flex' : 'none';
+        }
+    }
+    if (elements.barPeakDecay) {
+        elements.barPeakDecay.value = state.visuals.peakDecay !== undefined ? state.visuals.peakDecay : 1.5;
+        if (elements.peakDecayVal) {
+            elements.peakDecayVal.innerText = (state.visuals.peakDecay !== undefined ? state.visuals.peakDecay : 1.5).toFixed(1);
+        }
+    }
+    if (elements.barPeakCustomColorEnabled) {
+        elements.barPeakCustomColorEnabled.checked = state.visuals.peakCustomColorEnabled || false;
+    }
+    if (elements.barPeakColor) {
+        elements.barPeakColor.value = state.visuals.peakColor || '#ef4444';
+    }
+    if (elements.barClassicColors) {
+        elements.barClassicColors.checked = state.visuals.classicColors;
+    }
+
+    // Dynamic GPU acceleration check
+    const checkGPUAcceleration = async () => {
+        const gpuBadge = elements.badgeGpu;
+        if (!gpuBadge) return;
+
+        // "if it's checking" - set checking state first
+        gpuBadge.style.display = 'inline-flex';
+        gpuBadge.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> GPU Checking...<span class="tooltip">Detecting hardware-accelerated encoding capabilities...</span>';
+
+        if (typeof window.VideoEncoder === 'undefined') {
+            // "if it's not skip it" -> hide the badge
+            gpuBadge.style.display = 'none';
+            return;
+        }
+
+        try {
+            const config = {
+                codec: 'vp09.00.41.08',
+                width: 1920,
+                height: 1080,
+                bitrate: 4000000,
+                framerate: 30,
+                latencyMode: 'quality'
+            };
+            const support = await VideoEncoder.isConfigSupported(config);
+            if (support.supported) {
+                gpuBadge.innerHTML = '<i class="fa-solid fa-bolt"></i> GPU Accelerated<span class="tooltip"><strong>WebCodecs GPU Encoder</strong>Uses the browser\'s hardware-accelerated WebCodecs API (VideoEncoder) to compile frames at GPU speeds.</span>';
+            } else {
+                // Not supported, skip it
+                gpuBadge.style.display = 'none';
+            }
+        } catch (e) {
+            // Error checking, skip it
+            gpuBadge.style.display = 'none';
+        }
+    };
+
+    checkGPUAcceleration();
 }
 
