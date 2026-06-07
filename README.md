@@ -3,8 +3,6 @@
 AuraWave is a hardware-accelerated audio visualizer that compiles viewport-accurate MP4 videos (H.264 / AAC) with zero frame drops. By combining client-side WebCodecs API encoding with server-side FFmpeg remuxing, it delivers visually lossless visualizers at high speeds.
 
 
-<img width="1543" height="1009" alt="image" src="https://github.com/user-attachments/assets/f5fae03e-e0ec-4812-b652-5bd59d9aae6e" />
-
 ---
 
 ## Features
@@ -29,7 +27,6 @@ AuraWave is a hardware-accelerated audio visualizer that compiles viewport-accur
 
 ---
 
-<img width="1498" height="861" alt="image" src="https://github.com/user-attachments/assets/181d2a7f-8d35-4a36-a465-46371bd9929e" />
 
 
 ## Controls Reference
