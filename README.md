@@ -1,4 +1,4 @@
-# AuraWave - Premium Audio-to-Video Creator
+# AuraWave - Audio-to-Video Creator
 
 AuraWave is a hardware-accelerated audio visualizer that compiles viewport-accurate MP4 videos (H.264 / AAC) with zero frame drops. By combining client-side WebCodecs API encoding with server-side FFmpeg remuxing, it delivers visually lossless visualizers at high speeds.
 
