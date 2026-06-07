@@ -572,7 +572,7 @@ function renderFrame() {
 
     // Global Camera Shudder / Tremor on Beats
     ctx.save();
-    if (state.fx.beatPulse && pulseScale > 1.002) {
+    if (state.fx.beatPulse && pulseScale > 1.002 && state.fx.beatBloomEnabled !== true) {
         const shakeAmt = (pulseScale - 1.0) * 160;
         const shakeX = (Math.random() - 0.5) * shakeAmt;
         const shakeY = (Math.random() - 0.5) * shakeAmt;
@@ -621,19 +621,26 @@ function renderFrame() {
 
     if (activeBg) {
         bgCtx.save();
-        const currentPulse = state.fx.beatPulse ? pulseScale : 1.0;
+        const currentPulse = (state.fx.beatPulse && state.fx.beatBloomEnabled !== true) ? pulseScale : 1.0;
         bgCtx.translate(width / 2 + finalShiftX, height / 2 + finalShiftY);
         bgCtx.scale(finalZoom * currentPulse, finalZoom * currentPulse);
         
         // Dynamic color filters
+        let gradingFilter = '';
         if (state.fx.colorGrading === 'cyberpunk') {
-            bgCtx.filter = 'contrast(1.15) brightness(0.85) saturate(1.5) hue-rotate(-20deg)';
+            gradingFilter = 'contrast(1.15) brightness(0.85) saturate(1.5) hue-rotate(-20deg)';
         } else if (state.fx.colorGrading === 'vintage') {
-            bgCtx.filter = 'sepia(0.3) contrast(0.92) saturate(0.85) brightness(1.02)';
+            gradingFilter = 'sepia(0.3) contrast(0.92) saturate(0.85) brightness(1.02)';
         } else if (state.fx.colorGrading === 'mono') {
-            bgCtx.filter = 'grayscale(1.0) contrast(1.35) brightness(0.85)';
+            gradingFilter = 'grayscale(1.0) contrast(1.35) brightness(0.85)';
         } else if (state.fx.colorGrading === 'aesthetic') {
-            bgCtx.filter = 'saturate(1.25) hue-rotate(40deg) brightness(1.06)';
+            gradingFilter = 'saturate(1.25) hue-rotate(40deg) brightness(1.06)';
+        }
+        
+        if (gradingFilter) {
+            bgCtx.filter = gradingFilter;
+        } else {
+            bgCtx.filter = 'none';
         }
         
         const isVideo = activeBg instanceof HTMLVideoElement;
@@ -651,6 +658,45 @@ function renderFrame() {
             dh = width / imgRatio;
         }
         bgCtx.drawImage(activeBg, -dw / 2, -dh / 2, dw, dh);
+        
+        // Apply stacked multi-pass HDR bloom glow overlay on beats if toggled
+        if (state.fx.beatPulse && state.fx.beatBloomEnabled === true) {
+            const bloomPower = state.fx.beatBloomStrength !== undefined ? state.fx.beatBloomStrength : 1.5;
+            // Map pulseScale (typically 1.0 to 1.08) to a 0.0 - 1.0 beat intensity range
+            const maxRise = 0.08 * (state.fx.beatPulseIntensity !== undefined ? state.fx.beatPulseIntensity : 1.0);
+            const beatIntensity = maxRise > 0.001 ? Math.max(0, pulseScale - 1.0) / maxRise : 0;
+            
+            // Total bloom strength scales purely from 0.0 (silence) up to maximum bloomPower
+            const totalStrength = Math.max(0, beatIntensity * bloomPower);
+            
+            if (totalStrength > 0.01) {
+                bgCtx.save();
+                bgCtx.globalCompositeOperation = 'lighter';
+                
+                const filterPrefix = gradingFilter ? gradingFilter + ' ' : '';
+                
+                // Pass 1: Deep atmospheric scatter (very wide blur, low opacity)
+                const blur1 = Math.max(10, (30 + beatIntensity * 50) * (bloomPower * 0.5 + 0.5));
+                bgCtx.filter = `${filterPrefix}blur(${blur1.toFixed(1)}px) brightness(${(1.0 + totalStrength * 0.5).toFixed(2)}) saturate(1.25)`;
+                bgCtx.globalAlpha = Math.min(0.70, totalStrength * 0.25);
+                bgCtx.drawImage(activeBg, -dw / 2, -dh / 2, dw, dh);
+                
+                // Pass 2: Broad glow corona (medium blur, medium opacity)
+                const blur2 = Math.max(5, (15 + beatIntensity * 25) * (bloomPower * 0.5 + 0.5));
+                bgCtx.filter = `${filterPrefix}blur(${blur2.toFixed(1)}px) brightness(${(1.0 + totalStrength * 1.0).toFixed(2)}) contrast(1.1)`;
+                bgCtx.globalAlpha = Math.min(0.50, totalStrength * 0.45);
+                bgCtx.drawImage(activeBg, -dw / 2, -dh / 2, dw, dh);
+
+                // Pass 3: Bright core bloom (narrow blur, higher opacity)
+                const blur3 = Math.max(2, (6 + beatIntensity * 10) * (bloomPower * 0.5 + 0.5));
+                bgCtx.filter = `${filterPrefix}blur(${blur3.toFixed(1)}px) brightness(${(1.0 + totalStrength * 2.0).toFixed(2)}) contrast(1.2)`;
+                bgCtx.globalAlpha = Math.min(0.30, totalStrength * 0.65);
+                bgCtx.drawImage(activeBg, -dw / 2, -dh / 2, dw, dh);
+                
+                bgCtx.restore();
+            }
+        }
+        
         bgCtx.restore();
     } else {
         drawPresetGradient(bgCtx, width, height, state.visuals.gradientPreset);
@@ -699,21 +745,20 @@ function renderFrame() {
             bassSum += dataArray[i];
         }
         const bassAvg = bassSum / bassMaxBin;
-        const relativeRatio = bassAvg / (bassMovingAverage || 1);
-        const isKick = (relativeRatio > 1.04 && bassAvg > 35);
-        const volumeReaction = Math.min(1.0, bassAvg / 180);
+        
+        // Pure volume reaction: calculate volume above the reactivity floor
+        const floor = state.fx.beatFloor !== undefined ? state.fx.beatFloor : 35;
+        const netBass = Math.max(0, bassAvg - floor);
+        const volumeReaction = Math.min(1.0, netBass / 150.0);
+        
+        // Scale target pulse directly with the net volume reaction
+        const maxIntensity = state.fx.beatPulseIntensity !== undefined ? state.fx.beatPulseIntensity : 1.0;
+        const targetPulse = 1.0 + volumeReaction * (0.08 * maxIntensity);
 
-        let targetPulse = 1.0 + (volumeReaction * 0.03);
-        if (isKick) {
-            targetPulse += Math.min(0.06, (relativeRatio - 1.0) * 0.15) * state.fx.beatPulseIntensity;
-        }
-
-        if (targetPulse > pulseScale) {
-            pulseScale = targetPulse;
-        } else {
-            pulseScale += (1.0 - pulseScale) * 0.14;
-        }
-        bassMovingAverage = Math.max(5, bassMovingAverage * 0.96 + bassAvg * 0.04);
+        // Smooth reaction using the beatSmoothing coefficient (both rise and fall)
+        const smoothing = state.fx.beatSmoothing !== undefined ? state.fx.beatSmoothing : 0.75;
+        const interp = 1.0 - smoothing;
+        pulseScale += (targetPulse - pulseScale) * interp;
 
         // Broad-spectrum volume level for shape glow reactivity (FFT is already pre-smoothed)
         let vSum = 0;
@@ -880,8 +925,10 @@ function renderFrame() {
             strokeWithHDRBloom(ctx, glowColor, colorHex, 3 + glowFactor * 12, true, glowFactor);
         } else if (state.visuals.shapeType === 'triangle' || state.visuals.shapeType === 'triangle_down') {
             const currentRadius = baseRadius + scaleFactor * 140;
-            const time = Date.now() * 0.001;
-            const rotationAngle = time * 0.5;
+            const time = (state.audio.currentTime || Date.now() * 0.001);
+            const rotationAngle = state.visuals.waveRotationEnabled
+                ? time * 0.5 * (state.visuals.waveRotationSpeed || 1)
+                : 0;
             const isDown = state.visuals.shapeType === 'triangle_down';
             const angleOffset = isDown ? Math.PI : 0;
             
@@ -897,8 +944,10 @@ function renderFrame() {
             strokeWithHDRBloom(ctx, glowColor, colorHex, 5 + glowFactor * 18, true, glowFactor);
         } else if (state.visuals.shapeType === 'hexagon') {
             const currentRadius = baseRadius + scaleFactor * 140;
-            const time = Date.now() * 0.001;
-            const rotationAngle = time * 0.4;
+            const time = (state.audio.currentTime || Date.now() * 0.001);
+            const rotationAngle = state.visuals.waveRotationEnabled
+                ? time * 0.4 * (state.visuals.waveRotationSpeed || 1)
+                : 0;
             
             ctx.beginPath();
             for (let i = 0; i < 6; i++) {

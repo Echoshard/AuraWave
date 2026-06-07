@@ -86,6 +86,10 @@ const state = {
         beatPulse: false,
         beatPulseIntensity: 1.0,
         beatPulseDirection: 'omni', // omni, horizontal, vertical, zoom
+        beatFloor: 35,
+        beatSmoothing: 0.75,
+        beatBloomEnabled: false,
+        beatBloomStrength: 1.5,
         particles: false,
         particleCount: 60,
         particleStyle: 'stardust', // stardust, embers, rain, pixels, ascii
@@ -268,6 +272,14 @@ document.addEventListener('DOMContentLoaded', () => {
     elements.fxBeatPulseIntensity = document.getElementById('fx-beat-pulse-intensity');
     elements.beatPulseIntensityVal = document.getElementById('beat-pulse-intensity-val');
     elements.fxBeatPulseDirection = document.getElementById('fx-beat-pulse-direction');
+    elements.fxBeatFloor = document.getElementById('fx-beat-floor');
+    elements.fxBeatFloorVal = document.getElementById('fx-beat-floor-val');
+    elements.fxBeatSmoothing = document.getElementById('fx-beat-smoothing');
+    elements.fxBeatSmoothingVal = document.getElementById('fx-beat-smoothing-val');
+    elements.fxBeatBloomEnabled = document.getElementById('fx-beat-bloom-enabled');
+    elements.fxBeatBloomStrength = document.getElementById('fx-beat-bloom-strength');
+    elements.fxBeatBloomStrengthVal = document.getElementById('fx-beat-bloom-strength-val');
+    elements.beatBloomStrengthContainer = document.getElementById('beat-bloom-strength-container');
     
     elements.fxParticles = document.getElementById('fx-particles');
     elements.particleCount = document.getElementById('particle-count');
@@ -914,7 +926,7 @@ document.addEventListener('DOMContentLoaded', () => {
         triggerRedraw();
     });
 
-    // Bass Beat Reaction listeners
+    // Volume Reaction listeners
     if (elements.fxBeatPulse) {
         elements.fxBeatPulse.addEventListener('change', (e) => {
             state.fx.beatPulse = e.target.checked;
@@ -933,6 +945,45 @@ document.addEventListener('DOMContentLoaded', () => {
     if (elements.fxBeatPulseDirection) {
         elements.fxBeatPulseDirection.addEventListener('change', (e) => {
             state.fx.beatPulseDirection = e.target.value;
+            triggerRedraw();
+        });
+    }
+    if (elements.fxBeatFloor) {
+        elements.fxBeatFloor.addEventListener('input', (e) => {
+            const val = parseInt(e.target.value);
+            state.fx.beatFloor = val;
+            if (elements.fxBeatFloorVal) {
+                elements.fxBeatFloorVal.innerText = val;
+            }
+            triggerRedraw();
+        });
+    }
+    if (elements.fxBeatSmoothing) {
+        elements.fxBeatSmoothing.addEventListener('input', (e) => {
+            const val = parseFloat(e.target.value);
+            state.fx.beatSmoothing = val;
+            if (elements.fxBeatSmoothingVal) {
+                elements.fxBeatSmoothingVal.innerText = val.toFixed(2);
+            }
+            triggerRedraw();
+        });
+    }
+    if (elements.fxBeatBloomEnabled) {
+        elements.fxBeatBloomEnabled.addEventListener('change', (e) => {
+            state.fx.beatBloomEnabled = e.target.checked;
+            if (elements.beatBloomStrengthContainer) {
+                elements.beatBloomStrengthContainer.style.display = e.target.checked ? 'block' : 'none';
+            }
+            triggerRedraw();
+        });
+    }
+    if (elements.fxBeatBloomStrength) {
+        elements.fxBeatBloomStrength.addEventListener('input', (e) => {
+            const val = parseFloat(e.target.value);
+            state.fx.beatBloomStrength = val;
+            if (elements.fxBeatBloomStrengthVal) {
+                elements.fxBeatBloomStrengthVal.innerText = `${val.toFixed(1)}x`;
+            }
             triggerRedraw();
         });
     }
@@ -1789,6 +1840,31 @@ function syncDOMToState() {
         elements.beatPulseIntensityVal.innerText = `${state.fx.beatPulseIntensity.toFixed(1)}x`;
     }
     if (elements.fxBeatPulseDirection) elements.fxBeatPulseDirection.value = state.fx.beatPulseDirection;
+
+    if (elements.fxBeatFloor) {
+        elements.fxBeatFloor.value = state.fx.beatFloor !== undefined ? state.fx.beatFloor : 35;
+        if (elements.fxBeatFloorVal) {
+            elements.fxBeatFloorVal.innerText = state.fx.beatFloor !== undefined ? state.fx.beatFloor : 35;
+        }
+    }
+    if (elements.fxBeatSmoothing) {
+        elements.fxBeatSmoothing.value = state.fx.beatSmoothing !== undefined ? state.fx.beatSmoothing : 0.75;
+        if (elements.fxBeatSmoothingVal) {
+            elements.fxBeatSmoothingVal.innerText = (state.fx.beatSmoothing !== undefined ? state.fx.beatSmoothing : 0.75).toFixed(2);
+        }
+    }
+    if (elements.fxBeatBloomEnabled) {
+        elements.fxBeatBloomEnabled.checked = state.fx.beatBloomEnabled || false;
+        if (elements.beatBloomStrengthContainer) {
+            elements.beatBloomStrengthContainer.style.display = state.fx.beatBloomEnabled ? 'block' : 'none';
+        }
+    }
+    if (elements.fxBeatBloomStrength) {
+        elements.fxBeatBloomStrength.value = state.fx.beatBloomStrength !== undefined ? state.fx.beatBloomStrength : 1.5;
+        if (elements.fxBeatBloomStrengthVal) {
+            elements.fxBeatBloomStrengthVal.innerText = `${(state.fx.beatBloomStrength !== undefined ? state.fx.beatBloomStrength : 1.5).toFixed(1)}x`;
+        }
+    }
 
     if (elements.fxParticles) elements.fxParticles.checked = state.fx.particles;
     if (elements.particleCount) {

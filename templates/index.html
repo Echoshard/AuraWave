@@ -693,7 +693,7 @@
                             <div class="fx-header">
                                 <div class="fx-title">
                                     <i class="fa-solid fa-compress-arrows-alt"></i>
-                                    <span>Bass Beat Reaction</span>
+                                    <span>Volume Reaction</span>
                                 </div>
                                 <label class="toggle-switch">
                                     <input type="checkbox" id="fx-beat-pulse">
@@ -709,7 +709,7 @@
                                     </label>
                                     <input type="range" id="fx-beat-pulse-intensity" min="0.2" max="2.5" step="0.1" value="1.0" class="slider-input">
                                 </div>
-                                <div class="synth-control-row">
+                                <div class="synth-control-row" style="margin-bottom: 0.75rem;">
                                     <span>Shake Direction:</span>
                                     <select id="fx-beat-pulse-direction" class="select-input" style="width: 160px;">
                                         <option value="omni" selected>Omni-directional</option>
@@ -717,6 +717,38 @@
                                         <option value="vertical">Vertical Shift</option>
                                         <option value="zoom">Dynamic Zoom</option>
                                     </select>
+                                </div>
+
+                                <div class="synth-control-row" style="margin-bottom: 0.75rem;">
+                                    <label class="setting-label-row" style="width: 100%;">
+                                        <span>Reactivity Floor</span>
+                                        <span class="val-display" id="fx-beat-floor-val">35</span>
+                                    </label>
+                                    <input type="range" id="fx-beat-floor" min="0" max="150" step="5" value="35" class="slider-input">
+                                </div>
+
+                                <div class="synth-control-row" style="margin-bottom: 0.75rem;">
+                                    <label class="setting-label-row" style="width: 100%;">
+                                        <span>Reaction Smoothing</span>
+                                        <span class="val-display" id="fx-beat-smoothing-val">0.75</span>
+                                    </label>
+                                    <input type="range" id="fx-beat-smoothing" min="0.00" max="0.95" step="0.05" value="0.75" class="slider-input">
+                                </div>
+
+                                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.75rem;">
+                                    <span style="font-size: 0.85rem; font-weight: 500; color: var(--text-secondary);">Bloom instead of Shake</span>
+                                    <label class="toggle-switch">
+                                        <input type="checkbox" id="fx-beat-bloom-enabled">
+                                        <span class="slider"></span>
+                                    </label>
+                                </div>
+
+                                <div class="setting-group" id="beat-bloom-strength-container" style="display: none; margin-bottom: 0;">
+                                    <label class="setting-label-row">
+                                        <span>Bloom Power</span>
+                                        <span class="val-display" id="fx-beat-bloom-strength-val">1.5x</span>
+                                    </label>
+                                    <input type="range" id="fx-beat-bloom-strength" min="0.1" max="5.0" step="0.1" value="1.5" class="slider-input">
                                 </div>
                             </div>
                         </div>
@@ -1249,14 +1281,14 @@
 
     <!-- Load JavaScript files -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
-    <script src="/static/js/presets.js"></script>
-    <script src="/static/js/core.js"></script>
-    <script src="/static/js/synth.js"></script>
-    <script src="/static/js/visualizer.js"></script>
-    <script src="/static/js/interaction.js"></script>
-    <script src="/static/js/vendor/webm-muxer.js"></script>
-    <script src="/static/js/export.js"></script>
-    <script src="/static/js/combiner.js"></script>
+    <script src="/static/js/presets.js?v={{ range(1, 100000) | random }}"></script>
+    <script src="/static/js/core.js?v={{ range(1, 100000) | random }}"></script>
+    <script src="/static/js/synth.js?v={{ range(1, 100000) | random }}"></script>
+    <script src="/static/js/visualizer.js?v={{ range(1, 100000) | random }}"></script>
+    <script src="/static/js/interaction.js?v={{ range(1, 100000) | random }}"></script>
+    <script src="/static/js/vendor/webm-muxer.js?v={{ range(1, 100000) | random }}"></script>
+    <script src="/static/js/export.js?v={{ range(1, 100000) | random }}"></script>
+    <script src="/static/js/combiner.js?v={{ range(1, 100000) | random }}"></script>
 </body>
 </html>
 
