@@ -29,6 +29,9 @@ AuraWave is a hardware-accelerated audio visualizer that compiles viewport-accur
 
 ---
 
+<img width="1498" height="861" alt="image" src="https://github.com/user-attachments/assets/181d2a7f-8d35-4a36-a465-46371bd9929e" />
+
+
 ## Controls Reference
 
 ### Visual Options
