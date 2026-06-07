@@ -146,8 +146,8 @@ function applyShadowGlow(ctx, glowColor, baseBlur, beatBlurAmount, isShape = fal
         : (state.visuals.glowStrength !== undefined ? state.visuals.glowStrength : 1.0);
     
     const opacity = state.visuals.glowOpacity !== undefined ? state.visuals.glowOpacity : 0.85;
-    ctx.shadowColor = hexToRgba(glowColor, opacity);
-    ctx.shadowBlur = blur * strength;
+    ctx.shadowColor = hexToRgba(glowColor, Math.min(1.0, opacity * strength));
+    ctx.shadowBlur = Math.min(80, blur);
 }
 
 function strokeWithHDRBloom(ctx, glowColor, baseStrokeStyle, baseLineWidth, isShape = false) {
@@ -163,61 +163,77 @@ function strokeWithHDRBloom(ctx, glowColor, baseStrokeStyle, baseLineWidth, isSh
     }
 
     const intensity = state.visuals.glowStrength !== undefined ? state.visuals.glowStrength : 1.0;
-    const spread = state.visuals.glowRadius !== undefined ? state.visuals.glowRadius : 35;
-    const opacity = state.visuals.glowOpacity !== undefined ? state.visuals.glowOpacity : 0.85;
-    
+    const spread   = state.visuals.glowRadius  !== undefined ? state.visuals.glowRadius  : 35;
+    const opacity  = state.visuals.glowOpacity !== undefined ? state.visuals.glowOpacity : 0.85;
+
     const isBeatActive = state.visuals.glowWithBeat || (isShape && state.visuals.shapeGlowReactive);
-    const beatIntensity = isBeatActive ? (Math.max(0, pulseScale - 1.0) / 0.06) : 0;
-    const dynamicSpread = spread * (1.0 + beatIntensity * 0.8);
-    const strength = isShape 
+    const beatBoost = isBeatActive ? Math.max(0, pulseScale - 1.0) / 0.06 : 0;
+    // Beat dramatically expands the bloom radius AND boosts effective intensity
+    const dynSpread    = spread    * (1.0 + beatBoost * 2.0);
+    const dynIntensity = intensity * (1.0 + beatBoost * 0.5);
+
+    const strength = isShape
         ? (state.visuals.shapeGlowStrength !== undefined ? state.visuals.shapeGlowStrength : 1.0)
         : 1.0;
-    
+
+    // Hard cap on shadowBlur — Chrome allocates a full-canvas GPU buffer per shadow pass;
+    // values above ~80px on a 1920×1080 canvas cause rapid VRAM exhaustion.
+    // strength boosts brightness (opacity) not radius, so it's excluded from blur calcs.
+    const MAX_BLUR = 80;
+
     ctx.save();
-    
-    // Additive screen blending for gorgeous photographic blowout when intensity is high
-    if (intensity > 1.2) {
-        ctx.globalCompositeOperation = 'screen';
+
+    // 'lighter' = true additive RGB — values accumulate and clip to white at high intensity
+    ctx.globalCompositeOperation = 'lighter';
+    ctx.strokeStyle = baseStrokeStyle;
+    ctx.lineWidth   = baseLineWidth;
+
+    // P1 — Deep atmospheric scatter
+    ctx.shadowColor = hexToRgba(glowColor, opacity * 0.06 * dynIntensity * strength);
+    ctx.shadowBlur  = Math.min(MAX_BLUR, dynSpread * 5.5);
+    ctx.stroke();
+
+    // P2 — Broad corona
+    ctx.shadowColor = hexToRgba(glowColor, Math.min(1.0, opacity * 0.16 * dynIntensity * strength));
+    ctx.shadowBlur  = Math.min(MAX_BLUR, dynSpread * 2.6);
+    ctx.stroke();
+
+    // P3 — Mid bloom
+    ctx.shadowColor = hexToRgba(glowColor, Math.min(1.0, opacity * 0.46 * dynIntensity * strength));
+    ctx.shadowBlur  = Math.min(MAX_BLUR, dynSpread * 1.1);
+    ctx.stroke();
+
+    // P4 — Inner halo (starts the blowout at high intensity)
+    ctx.shadowColor = hexToRgba(glowColor, Math.min(1.0, opacity * dynIntensity * strength));
+    ctx.shadowBlur  = Math.min(MAX_BLUR, dynSpread * 0.35);
+    ctx.stroke();
+
+    // Extra stacking passes — capped at 3 to prevent per-frame GPU memory exhaustion
+    const extraPasses = Math.max(0, Math.min(3, Math.ceil(dynIntensity * strength) - 1));
+    for (let s = 0; s < extraPasses; s++) {
+        ctx.shadowColor = hexToRgba(glowColor, Math.min(1.0, opacity * 0.7 * strength));
+        ctx.shadowBlur  = Math.min(MAX_BLUR, dynSpread * (0.28 + s * 0.14));
+        ctx.stroke();
     }
 
-    // Stack rendering passes to exceed normal opacity limits and over-expose the bloom
-    const stackCount = Math.max(1, Math.min(5, Math.ceil(intensity)));
-    const coreWidthFactor = Math.max(0.35, 0.35 * (1.0 + (intensity - 1.0) * 0.6));
-    
-    for (let s = 0; s < stackCount; s++) {
-        // Pass 1: Volumetric Ambient Bloom (Wide and soft)
-        ctx.strokeStyle = baseStrokeStyle;
-        ctx.lineWidth = baseLineWidth;
-        ctx.shadowColor = hexToRgba(glowColor, Math.min(1.0, opacity * 0.22 * intensity));
-        ctx.shadowBlur = dynamicSpread * 2.5 * strength;
-        ctx.stroke();
-        
-        // Pass 2: Mid-range Glow Bloom
-        ctx.shadowColor = hexToRgba(glowColor, Math.min(1.0, opacity * 0.55 * intensity));
-        ctx.shadowBlur = dynamicSpread * 1.1 * strength;
-        ctx.stroke();
-        
-        // Pass 3: Saturated Inner Core Halo
-        ctx.shadowColor = hexToRgba(glowColor, Math.min(1.0, opacity * 0.95 * intensity));
-        ctx.shadowBlur = dynamicSpread * 0.35 * strength;
-        ctx.stroke();
-    }
-    
-    // Pass 4: White-hot Inner Laser Core (Pure HDR Blowout!)
-    ctx.globalCompositeOperation = 'source-over';
+    // White-hot core — 'lighter' additive so it accumulates with the colored bloom above
+    ctx.shadowBlur  = 0;
     ctx.shadowColor = 'transparent';
-    ctx.shadowBlur = 0;
-    ctx.strokeStyle = '#ffffff';
-    ctx.lineWidth = Math.max(1.5, baseLineWidth * coreWidthFactor);
+    const coreOpacity = Math.min(1.0, 0.45 + (dynIntensity * strength - 1.0) * 0.32);
+    const coreWidth   = Math.max(1.5, baseLineWidth * Math.max(0.3, 0.35 * (1.0 + (intensity - 1.0) * 0.55)));
+    ctx.strokeStyle = `rgba(255,255,255,${coreOpacity})`;
+    ctx.lineWidth   = coreWidth;
     ctx.stroke();
-    
-    // Extra soft white halo overlay for intense blowouts
-    if (intensity >= 1.5) {
-        ctx.strokeStyle = 'rgba(255, 255, 255, 0.45)';
-        ctx.lineWidth = Math.max(2.5, baseLineWidth * coreWidthFactor * 1.8);
+
+    // Wider white halo at mid–high intensity
+    if (dynIntensity * strength >= 1.5) {
+        ctx.shadowColor = hexToRgba(glowColor, Math.min(1.0, opacity * dynIntensity * strength * 0.55));
+        ctx.shadowBlur  = Math.min(MAX_BLUR, dynSpread * 0.55);
+        ctx.strokeStyle = `rgba(255,255,255,${Math.min(1.0, (dynIntensity * strength - 1.0) * 0.5)})`;
+        ctx.lineWidth   = Math.max(2.5, baseLineWidth * 0.85);
         ctx.stroke();
     }
-    
+
     ctx.restore();
 }
 
@@ -233,56 +249,66 @@ function fillWithHDRBloom(ctx, glowColor, baseFillStyle, isShape = false) {
     }
 
     const intensity = state.visuals.glowStrength !== undefined ? state.visuals.glowStrength : 1.0;
-    const spread = state.visuals.glowRadius !== undefined ? state.visuals.glowRadius : 35;
-    const opacity = state.visuals.glowOpacity !== undefined ? state.visuals.glowOpacity : 0.85;
-    
+    const spread   = state.visuals.glowRadius  !== undefined ? state.visuals.glowRadius  : 35;
+    const opacity  = state.visuals.glowOpacity !== undefined ? state.visuals.glowOpacity : 0.85;
+
     const isBeatActive = state.visuals.glowWithBeat || (isShape && state.visuals.shapeGlowReactive);
-    const beatIntensity = isBeatActive ? (Math.max(0, pulseScale - 1.0) / 0.06) : 0;
-    const dynamicSpread = spread * (1.0 + beatIntensity * 0.8);
-    const strength = isShape 
+    const beatBoost = isBeatActive ? Math.max(0, pulseScale - 1.0) / 0.06 : 0;
+    const dynSpread    = spread    * (1.0 + beatBoost * 2.0);
+    const dynIntensity = intensity * (1.0 + beatBoost * 0.5);
+
+    const strength = isShape
         ? (state.visuals.shapeGlowStrength !== undefined ? state.visuals.shapeGlowStrength : 1.0)
         : 1.0;
-    
+
+    const MAX_BLUR = 80;
+
     ctx.save();
-    
-    if (intensity > 1.2) {
-        ctx.globalCompositeOperation = 'screen';
+    ctx.globalCompositeOperation = 'lighter';
+    ctx.fillStyle = baseFillStyle;
+
+    // P1 — Atmospheric haze
+    ctx.shadowColor = hexToRgba(glowColor, opacity * 0.06 * dynIntensity * strength);
+    ctx.shadowBlur  = Math.min(MAX_BLUR, dynSpread * 5.5);
+    ctx.fill();
+
+    // P2 — Broad corona
+    ctx.shadowColor = hexToRgba(glowColor, Math.min(1.0, opacity * 0.16 * dynIntensity * strength));
+    ctx.shadowBlur  = Math.min(MAX_BLUR, dynSpread * 2.6);
+    ctx.fill();
+
+    // P3 — Mid bloom
+    ctx.shadowColor = hexToRgba(glowColor, Math.min(1.0, opacity * 0.46 * dynIntensity * strength));
+    ctx.shadowBlur  = Math.min(MAX_BLUR, dynSpread * 1.1);
+    ctx.fill();
+
+    // P4 — Inner halo
+    ctx.shadowColor = hexToRgba(glowColor, Math.min(1.0, opacity * dynIntensity * strength));
+    ctx.shadowBlur  = Math.min(MAX_BLUR, dynSpread * 0.35);
+    ctx.fill();
+
+    // Stacking blowout passes — capped at 3
+    const extraPasses = Math.max(0, Math.min(3, Math.ceil(dynIntensity * strength) - 1));
+    for (let s = 0; s < extraPasses; s++) {
+        ctx.shadowColor = hexToRgba(glowColor, Math.min(1.0, opacity * 0.7 * strength));
+        ctx.shadowBlur  = Math.min(MAX_BLUR, dynSpread * (0.28 + s * 0.14));
+        ctx.fill();
     }
 
-    const stackCount = Math.max(1, Math.min(5, Math.ceil(intensity)));
-    
-    for (let s = 0; s < stackCount; s++) {
-        // Pass 1: Volumetric Ambient Bloom (Wide and soft)
-        ctx.fillStyle = baseFillStyle;
-        ctx.shadowColor = hexToRgba(glowColor, Math.min(1.0, opacity * 0.22 * intensity));
-        ctx.shadowBlur = dynamicSpread * 2.5 * strength;
-        ctx.fill();
-        
-        // Pass 2: Mid-range Glow Bloom
-        ctx.shadowColor = hexToRgba(glowColor, Math.min(1.0, opacity * 0.55 * intensity));
-        ctx.shadowBlur = dynamicSpread * 1.1 * strength;
-        ctx.fill();
-        
-        // Pass 3: Saturated Inner Core Halo
-        ctx.shadowColor = hexToRgba(glowColor, Math.min(1.0, opacity * 0.95 * intensity));
-        ctx.shadowBlur = dynamicSpread * 0.35 * strength;
-        ctx.fill();
-    }
-    
-    // Pass 4: Hot Inner White Bloom
-    ctx.globalCompositeOperation = 'source-over';
+    // White-hot core (additive — clips to pure white at high intensity)
+    ctx.shadowBlur  = 0;
     ctx.shadowColor = 'transparent';
-    ctx.shadowBlur = 0;
-    
-    const whiteCoreOpacity = Math.min(0.9, 0.35 + (intensity - 1.0) * 0.25);
-    ctx.fillStyle = `rgba(255, 255, 255, ${whiteCoreOpacity})`;
+    const coreOpacity = Math.min(1.0, 0.45 + (dynIntensity * strength - 1.0) * 0.32);
+    ctx.fillStyle = `rgba(255,255,255,${coreOpacity})`;
     ctx.fill();
-    
-    if (intensity >= 1.5) {
-        ctx.fillStyle = 'rgba(255, 255, 255, 0.30)';
+
+    if (dynIntensity * strength >= 1.5) {
+        ctx.shadowColor = hexToRgba(glowColor, Math.min(1.0, opacity * dynIntensity * strength * 0.55));
+        ctx.shadowBlur  = Math.min(MAX_BLUR, dynSpread * 0.55);
+        ctx.fillStyle   = `rgba(255,255,255,${Math.min(1.0, (dynIntensity * strength - 1.0) * 0.5)})`;
         ctx.fill();
     }
-    
+
     ctx.restore();
 }
 
@@ -322,7 +348,7 @@ function setupParticles() {
         } else if (style === 'ascii') {
             speedY = dirMult * (Math.random() * state.fx.particleSpeed + 0.4);
             speedX = 0;
-            size = Math.ceil(Math.random() * state.fx.particleSize * 0.7 + 8);
+            size = Math.ceil(Math.random() * state.fx.particleSize * 1.05 + 12);
             glow = Math.random() > 0.5;
             shape = 'ascii';
             char = asciiChars[Math.floor(Math.random() * asciiChars.length)];
@@ -783,7 +809,7 @@ function renderFrame() {
                     p.char = asciiChars[Math.floor(Math.random() * asciiChars.length)];
                     p.charTimer = 0;
                 }
-                const fontSize = Math.max(8, Math.ceil(p.size));
+                const fontSize = Math.max(12, Math.ceil(p.size));
                 ctx.font = `bold ${fontSize}px monospace`;
                 if (p.glow && pulseScale > 1.01 && state.visuals.glowEnabled) {
                     ctx.shadowColor = p.color;
@@ -797,7 +823,7 @@ function renderFrame() {
                 ctx.beginPath();
                 if (p.glow && pulseScale > 1.01 && state.visuals.glowEnabled) {
                     ctx.shadowColor = getGlowColor(state.visuals.color);
-                    ctx.shadowBlur = 15 * (state.visuals.glowStrength !== undefined ? state.visuals.glowStrength : 1.0);
+                    ctx.shadowBlur = Math.min(80, 15 * (state.visuals.glowStrength !== undefined ? state.visuals.glowStrength : 1.0));
                     ctx.arc(p.x, p.y, p.size * 1.8, 0, Math.PI * 2);
                 } else {
                     ctx.shadowColor = 'transparent';
@@ -1055,45 +1081,44 @@ function renderFrame() {
             if (state.text.glowEnabled) {
                 const glowColor = state.text.color || '#ffffff';
                 const intensity = state.text.glowStrength !== undefined ? state.text.glowStrength : 1.0;
-                const spread = (state.visuals.glowRadius !== undefined ? state.visuals.glowRadius : 35) * intensity;
+                const baseSpread = (state.visuals.glowRadius !== undefined ? state.visuals.glowRadius : 35);
                 const opacity = 0.85;
 
                 ctx.save();
                 ctx.font = fontTitle;
-                
-                // Additive screen blending for gorgeous exposure
-                if (intensity > 1.2) {
-                    ctx.globalCompositeOperation = 'screen';
+                ctx.globalCompositeOperation = 'lighter';
+                ctx.shadowOffsetX = 0;
+                ctx.shadowOffsetY = 0;
+
+                const MAX_TEXT_BLUR = 80;
+                ctx.fillStyle = state.text.color;
+                ctx.shadowColor = hexToRgba(glowColor, opacity * 0.06 * intensity);
+                ctx.shadowBlur = Math.min(MAX_TEXT_BLUR, baseSpread * 5.5);
+                ctx.fillText(state.text.title, textX, textY);
+
+                ctx.shadowColor = hexToRgba(glowColor, Math.min(1.0, opacity * 0.16 * intensity));
+                ctx.shadowBlur = Math.min(MAX_TEXT_BLUR, baseSpread * 2.6);
+                ctx.fillText(state.text.title, textX, textY);
+
+                ctx.shadowColor = hexToRgba(glowColor, Math.min(1.0, opacity * 0.46 * intensity));
+                ctx.shadowBlur = Math.min(MAX_TEXT_BLUR, baseSpread * 1.1);
+                ctx.fillText(state.text.title, textX, textY);
+
+                ctx.shadowColor = hexToRgba(glowColor, Math.min(1.0, opacity * intensity));
+                ctx.shadowBlur = Math.min(MAX_TEXT_BLUR, baseSpread * 0.35);
+                ctx.fillText(state.text.title, textX, textY);
+
+                const extraPasses = Math.max(0, Math.min(3, Math.ceil(intensity) - 1));
+                for (let s = 0; s < extraPasses; s++) {
+                    ctx.shadowColor = hexToRgba(glowColor, Math.min(1.0, opacity * 0.7));
+                    ctx.shadowBlur = Math.min(MAX_TEXT_BLUR, baseSpread * (0.28 + s * 0.14));
+                    ctx.fillText(state.text.title, textX, textY);
                 }
 
-                const stackCount = Math.max(1, Math.min(5, Math.ceil(intensity)));
-                
-                for (let s = 0; s < stackCount; s++) {
-                    // Pass 1: Volumetric Ambient Bloom (Wide and soft)
-                    ctx.fillStyle = state.text.color;
-                    ctx.shadowColor = hexToRgba(glowColor, Math.min(1.0, opacity * 0.22 * intensity));
-                    ctx.shadowBlur = spread * 2.5;
-                    ctx.shadowOffsetX = 0;
-                    ctx.shadowOffsetY = 0;
-                    ctx.fillText(state.text.title, textX, textY);
-                    
-                    // Pass 2: Mid-range Glow Bloom
-                    ctx.shadowColor = hexToRgba(glowColor, Math.min(1.0, opacity * 0.55 * intensity));
-                    ctx.shadowBlur = spread * 1.1;
-                    ctx.fillText(state.text.title, textX, textY);
-                    
-                    // Pass 3: Saturated Inner Core Halo
-                    ctx.shadowColor = hexToRgba(glowColor, Math.min(1.0, opacity * 0.95 * intensity));
-                    ctx.shadowBlur = spread * 0.35;
-                    ctx.fillText(state.text.title, textX, textY);
-                }
-                
-                // Pass 4: Hot Inner Bloom / Main fill
-                ctx.globalCompositeOperation = 'source-over';
+                // White-hot core (additive)
                 ctx.shadowColor = 'transparent';
                 ctx.shadowBlur = 0;
-                
-                ctx.fillStyle = state.text.color;
+                ctx.fillStyle = `rgba(255,255,255,${Math.min(1.0, 0.45 + (intensity - 1.0) * 0.32)})`;
                 ctx.fillText(state.text.title, textX, textY);
                 ctx.restore();
             } else {
@@ -1116,39 +1141,43 @@ function renderFrame() {
                 if (state.text.glowEnabled) {
                     const glowColor = state.text.color || '#ffffff';
                     const intensity = state.text.glowStrength !== undefined ? state.text.glowStrength : 1.0;
-                    const spread = 20 * intensity;
+                    const baseSpread = (state.visuals.glowRadius !== undefined ? state.visuals.glowRadius : 35) * 0.6;
                     const opacity = 0.85;
 
                     ctx.save();
                     ctx.font = fontArtist;
-                    
-                    if (intensity > 1.2) {
-                        ctx.globalCompositeOperation = 'screen';
+                    ctx.globalCompositeOperation = 'lighter';
+                    ctx.shadowOffsetX = 0;
+                    ctx.shadowOffsetY = 0;
+
+                    const MAX_ARTIST_BLUR = 80;
+                    ctx.fillStyle = artistColor;
+                    ctx.shadowColor = hexToRgba(glowColor, opacity * 0.06 * intensity);
+                    ctx.shadowBlur = Math.min(MAX_ARTIST_BLUR, baseSpread * 5.5);
+                    ctx.fillText(state.text.artist, textX, artistY);
+
+                    ctx.shadowColor = hexToRgba(glowColor, Math.min(1.0, opacity * 0.16 * intensity));
+                    ctx.shadowBlur = Math.min(MAX_ARTIST_BLUR, baseSpread * 2.6);
+                    ctx.fillText(state.text.artist, textX, artistY);
+
+                    ctx.shadowColor = hexToRgba(glowColor, Math.min(1.0, opacity * 0.46 * intensity));
+                    ctx.shadowBlur = Math.min(MAX_ARTIST_BLUR, baseSpread * 1.1);
+                    ctx.fillText(state.text.artist, textX, artistY);
+
+                    ctx.shadowColor = hexToRgba(glowColor, Math.min(1.0, opacity * intensity));
+                    ctx.shadowBlur = Math.min(MAX_ARTIST_BLUR, baseSpread * 0.35);
+                    ctx.fillText(state.text.artist, textX, artistY);
+
+                    const extraPasses = Math.max(0, Math.min(3, Math.ceil(intensity) - 1));
+                    for (let s = 0; s < extraPasses; s++) {
+                        ctx.shadowColor = hexToRgba(glowColor, Math.min(1.0, opacity * 0.7));
+                        ctx.shadowBlur = Math.min(MAX_ARTIST_BLUR, baseSpread * (0.28 + s * 0.14));
+                        ctx.fillText(state.text.artist, textX, artistY);
                     }
 
-                    const stackCount = Math.max(1, Math.min(5, Math.ceil(intensity)));
-                    
-                    for (let s = 0; s < stackCount; s++) {
-                        ctx.fillStyle = artistColor;
-                        ctx.shadowColor = hexToRgba(glowColor, Math.min(1.0, opacity * 0.22 * intensity));
-                        ctx.shadowBlur = spread * 2.5;
-                        ctx.shadowOffsetX = 0;
-                        ctx.shadowOffsetY = 0;
-                        ctx.fillText(state.text.artist, textX, artistY);
-                        
-                        ctx.shadowColor = hexToRgba(glowColor, Math.min(1.0, opacity * 0.55 * intensity));
-                        ctx.shadowBlur = spread * 1.1;
-                        ctx.fillText(state.text.artist, textX, artistY);
-                        
-                        ctx.shadowColor = hexToRgba(glowColor, Math.min(1.0, opacity * 0.95 * intensity));
-                        ctx.shadowBlur = spread * 0.35;
-                        ctx.fillText(state.text.artist, textX, artistY);
-                    }
-                    
-                    ctx.globalCompositeOperation = 'source-over';
                     ctx.shadowColor = 'transparent';
                     ctx.shadowBlur = 0;
-                    ctx.fillStyle = artistColor;
+                    ctx.fillStyle = `rgba(255,255,255,${Math.min(1.0, 0.45 + (intensity - 1.0) * 0.32)})`;
                     ctx.fillText(state.text.artist, textX, artistY);
                     ctx.restore();
                 } else {

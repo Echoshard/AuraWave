@@ -104,7 +104,7 @@ const state = {
         title: 'Midnight Horizon',
         artist: 'Neon Dreamer',
         family: 'Outfit',
-        size: 48,
+        size: 96,
         color: '#ffffff',
         position: 'center',
         x: 960,

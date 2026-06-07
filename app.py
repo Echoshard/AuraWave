@@ -238,8 +238,25 @@ def remux_start():
     session_id = str(uuid.uuid4())
     webm_path = os.path.join(app.config['UPLOAD_FOLDER'], f"temp_{session_id}.webm")
     open(webm_path, 'wb').close()
-    remux_sessions[session_id] = {'webm_path': webm_path, 'bytes_written': 0}
+    remux_sessions[session_id] = {'webm_path': webm_path, 'bytes_written': 0, 'segments': {}}
     return jsonify({'session_id': session_id})
+
+
+@app.route('/api/remux-segment/<session_id>/<int:seg_num>', methods=['POST'])
+def remux_segment_upload(session_id, seg_num):
+    """Store one encoded WebM segment. Called once per 15-second chunk."""
+    session = remux_sessions.get(session_id)
+    if not session:
+        return jsonify({'error': 'Invalid or expired session'}), 404
+    seg_path = os.path.join(
+        app.config['UPLOAD_FOLDER'],
+        f"temp_{session_id}_s{seg_num:04d}.webm"
+    )
+    with open(seg_path, 'wb') as f:
+        f.write(request.data)
+    session['segments'][seg_num] = seg_path
+    logger.info(f"Segment {seg_num} received ({len(request.data)} bytes) for session {session_id}")
+    return jsonify({'ok': True, 'seg': seg_num, 'bytes': len(request.data)})
 
 
 @app.route('/api/remux-chunk/<session_id>', methods=['POST'])
@@ -257,12 +274,47 @@ def remux_chunk(session_id):
 
 @app.route('/api/remux-finalize/<session_id>', methods=['POST'])
 def remux_finalize(session_id):
-    """Close the upload session and kick off FFmpeg transcoding."""
+    """Close the upload session and kick off FFmpeg transcoding.
+
+    If the session contains numbered segments (from the segment-based export),
+    they are concatenated with `ffmpeg -f concat` before the audio mux step.
+    This keeps browser RAM bounded to one segment at a time during encoding.
+    """
     session = remux_sessions.pop(session_id, None)
     if not session:
         return jsonify({'error': 'Invalid or expired session'}), 404
 
-    webm_path = session['webm_path']
+    segments = session.get('segments', {})
+
+    if segments:
+        # Segment-based export: concat N WebM files into one before transcoding
+        sorted_paths = [segments[k] for k in sorted(segments.keys())]
+        concat_list  = os.path.join(app.config['UPLOAD_FOLDER'], f"temp_{session_id}_concat.txt")
+        webm_path    = os.path.join(app.config['UPLOAD_FOLDER'], f"temp_{session_id}.webm")
+
+        with open(concat_list, 'w') as f:
+            for p in sorted_paths:
+                f.write(f"file '{p}'\n")
+
+        try:
+            result = subprocess.run(
+                ['ffmpeg', '-y', '-f', 'concat', '-safe', '0',
+                 '-i', concat_list, '-c', 'copy', webm_path],
+                stdout=subprocess.PIPE, stderr=subprocess.PIPE
+            )
+            if result.returncode != 0:
+                err = result.stderr.decode(errors='replace')
+                logger.error(f"FFmpeg concat failed: {err}")
+                return jsonify({'error': f'Segment concat failed: {err[:200]}'}), 500
+            logger.info(f"Concatenated {len(sorted_paths)} segments → {webm_path}")
+        finally:
+            try: os.remove(concat_list)
+            except Exception: pass
+            for p in sorted_paths:
+                try: os.remove(p)
+                except Exception: pass
+    else:
+        webm_path = session['webm_path']
 
     export_name = request.form.get('export_name', '')
     if export_name.lower().endswith('.mp4'):
