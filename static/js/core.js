@@ -44,7 +44,11 @@ const state = {
         fgLayerPosition: 'infront', // 'infront' or 'behind' the beat ring
         bgVideo: null,
         fgVideo: null,
-        shapeType: 'ring', // ring, sphere, cube
+        shapeType: 'ring', // ring, sphere, cube, custom_image
+        customShapeImage: null,
+        customShapeImageName: '',
+        customShapeImageUrl: null,
+        customShapeDropShadow: false,
         shapeSize: 320,
         shapeScaleReactive: true,
         shapeGlowReactive: true,
@@ -305,6 +309,13 @@ document.addEventListener('DOMContentLoaded', () => {
     
     elements.shapesOptionsGroup = document.getElementById('shapes-options-group');
     elements.shapeType = document.getElementById('shape-type');
+    elements.customShapeUploadGroup = document.getElementById('custom-shape-upload-group');
+    elements.customShapeDropzone = document.getElementById('custom-shape-dropzone');
+    elements.customShapeInput = document.getElementById('custom-shape-input');
+    elements.customShapeBanner = document.getElementById('custom-shape-banner');
+    elements.customShapeName = document.getElementById('custom-shape-name');
+    elements.removeCustomShapeBtn = document.getElementById('remove-custom-shape-btn');
+    elements.customShapeDropShadow = document.getElementById('custom-shape-drop-shadow');
     elements.shapeSize = document.getElementById('shape-size');
     elements.shapeSizeVal = document.getElementById('shape-size-val');
     elements.shapeGlowStrength = document.getElementById('shape-glow-strength');
@@ -435,6 +446,17 @@ document.addEventListener('DOMContentLoaded', () => {
     setupDropzone(elements.audioDropzone, elements.audioInput, 'audio', loadAudioTrack);
     setupDropzone(elements.bgDropzone, elements.bgInput, 'image', loadBackgroundImage);
     setupDropzone(elements.fgDropzone, elements.fgInput, 'image', loadForegroundImage);
+    setupDropzone(elements.customShapeDropzone, elements.customShapeInput, 'image', loadCustomShapeImage);
+
+    if (elements.removeCustomShapeBtn) {
+        elements.removeCustomShapeBtn.addEventListener('click', removeCustomShapeImage);
+    }
+    if (elements.customShapeDropShadow) {
+        elements.customShapeDropShadow.addEventListener('change', (e) => {
+            state.visuals.customShapeDropShadow = e.target.checked;
+            triggerRedraw();
+        });
+    }
 
     // Audio basic controls
     elements.btnPlay.addEventListener('click', () => {
@@ -837,6 +859,9 @@ document.addEventListener('DOMContentLoaded', () => {
 
     elements.shapeType.addEventListener('change', (e) => {
         state.visuals.shapeType = e.target.value;
+        if (elements.customShapeUploadGroup) {
+            elements.customShapeUploadGroup.style.display = e.target.value === 'custom_image' ? 'block' : 'none';
+        }
         triggerRedraw();
     });
 
@@ -1570,6 +1595,37 @@ function removeForegroundImage() {
     elements.fgAdjustments.style.display = 'none';
 }
 
+function loadCustomShapeImage(file) {
+    const img = new Image();
+    const url = URL.createObjectURL(file);
+    img.src = url;
+    img.onload = () => {
+        if (state.visuals.customShapeImageUrl) URL.revokeObjectURL(state.visuals.customShapeImageUrl);
+        state.visuals.customShapeImage = img;
+        state.visuals.customShapeImageName = file.name;
+        state.visuals.customShapeImageUrl = url;
+        elements.customShapeDropzone.style.display = 'none';
+        elements.customShapeBanner.style.display = 'flex';
+        elements.customShapeName.innerText = file.name;
+        triggerRedraw();
+    };
+    img.onerror = () => {
+        URL.revokeObjectURL(url);
+        alert('Failed to load image. Please try a PNG or WEBP file.');
+    };
+}
+
+function removeCustomShapeImage() {
+    if (state.visuals.customShapeImageUrl) URL.revokeObjectURL(state.visuals.customShapeImageUrl);
+    state.visuals.customShapeImage = null;
+    state.visuals.customShapeImageName = '';
+    state.visuals.customShapeImageUrl = null;
+    elements.customShapeDropzone.style.display = 'flex';
+    elements.customShapeBanner.style.display = 'none';
+    elements.customShapeInput.value = '';
+    triggerRedraw();
+}
+
 // Web Audio Standard Playback Pipeline
 function playAudio() {
     if (!state.audio.buffer) return;
@@ -1789,6 +1845,9 @@ function syncDOMToState() {
 
     // 2. Sync Shape Options
     if (elements.shapeType) elements.shapeType.value = state.visuals.shapeType;
+    if (elements.customShapeUploadGroup) {
+        elements.customShapeUploadGroup.style.display = state.visuals.shapeType === 'custom_image' ? 'block' : 'none';
+    }
     if (elements.shapeSize) {
         elements.shapeSize.value = state.visuals.shapeSize;
         elements.shapeSizeVal.innerText = `${state.visuals.shapeSize}px`;

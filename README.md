@@ -29,7 +29,35 @@ AuraWave is a hardware-accelerated audio visualizer that compiles viewport-accur
 
 ---
 
+## Waveform Shapes
 
+Shapes mode renders a single glowing geometric object at the center of the canvas. All shapes support the same glow, bloom, and volume-reactivity controls.
+
+| Shape | Description |
+|---|---|
+| **Neon Beat Ring** | Stroke circle that expands and brightens on beat hits |
+| **Neon Beat Sphere** | Radial-gradient filled orb with a luminous core |
+| **Rotating Wireframe Cube** | 3D cube with full Euler rotation on all three axes |
+| **4D Rotating Tesseract** | Projected 4D hypercube rotating simultaneously in 3D and 4D |
+| **Rotating Wireframe Pyramid** | 3D pyramid with the same multi-axis rotation as the cube |
+| **2D Triangle (Upward / Downward)** | Equilateral triangle, optionally spinning with the rotation control |
+| **2D Hexagon** | Six-sided polygon with optional rotation |
+| **Rotating Hexagonal Prism** | 3D hexagonal prism with full Euler rotation |
+| **Custom PNG Image** | Upload any PNG or WEBP — it receives the full HDR glow, beat-reactive scale, and optional waveform rotation |
+
+### Shape Controls
+- **Base Shape Size** — Base radius / size of the shape (100–1000 px)
+- **Glow Size / Radius** — Bloom spread multiplier (0–8×)
+- **Reactivity Floor** — Minimum volume threshold before scale or glow activates
+- **Volume Reactive Scale** — Shape grows with audio volume
+- **Volume Reactive Glow** — Bloom brightness drives with audio volume
+- **Waveform Rotation** — Continuously rotates the shape; speed is adjustable
+
+### Custom Image Options
+- **Upload area** — Drag-and-drop or click to select a PNG or WEBP file (transparent PNGs work best)
+- **Drop Shadow** — Adds a soft black shadow beneath the image for depth (off by default; glow-only is the recommended setting)
+
+---
 
 ## Controls Reference
 

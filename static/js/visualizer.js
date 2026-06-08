@@ -994,6 +994,68 @@ function renderFrame() {
                 ctx.lineTo(projected[v].x, projected[v].y);
             });
             strokeWithHDRBloom(ctx, glowColor, colorHex, 4 + glowFactor * 14, true, glowFactor);
+        } else if (state.visuals.shapeType === 'custom_image' && state.visuals.customShapeImage) {
+            const img = state.visuals.customShapeImage;
+            const currentSize = baseRadius * 2 + scaleFactor * 240;
+            const aspect = img.width / img.height;
+            const drawW = aspect >= 1 ? currentSize : currentSize * aspect;
+            const drawH = aspect >= 1 ? currentSize / aspect : currentSize;
+
+            const time = state.audio.currentTime || Date.now() * 0.001;
+            const rotationAngle = state.visuals.waveRotationEnabled
+                ? time * 0.5 * (state.visuals.waveRotationSpeed || 1)
+                : 0;
+
+            // Push a transform so rotation is always around the shape center
+            ctx.save();
+            ctx.translate(centerX, centerY);
+            ctx.rotate(rotationAngle);
+
+            if (state.visuals.glowEnabled) {
+                const intensity  = state.visuals.glowStrength !== undefined ? state.visuals.glowStrength : 1.0;
+                const spread     = state.visuals.glowRadius   !== undefined ? state.visuals.glowRadius   : 35;
+                const opacity    = state.visuals.glowOpacity  !== undefined ? state.visuals.glowOpacity  : 0.85;
+                const dynSpread    = spread    * (1.0 + glowFactor * 2.0);
+                const dynIntensity = intensity * (1.0 + glowFactor * 0.5);
+                const strength     = finalGlowStrength;
+
+                // Use ctx.filter drop-shadow so glow colour is applied correctly and
+                // the image body is NOT drawn in 'lighter' mode (which washes it white).
+                // Each pass is saved/restored so alpha and filter don't bleed through.
+                const passes = [
+                    { blurPx: Math.min(40, dynSpread * 2.5), shadowPx: Math.min(40, dynSpread * 2.5), alpha: opacity * 0.12 * dynIntensity * strength },
+                    { blurPx: Math.min(30, dynSpread * 1.4), shadowPx: Math.min(35, dynSpread * 1.8), alpha: Math.min(1, opacity * 0.28 * dynIntensity * strength) },
+                    { blurPx: Math.min(12, dynSpread * 0.5), shadowPx: Math.min(25, dynSpread * 1.0), alpha: Math.min(1, opacity * 0.55 * dynIntensity * strength) },
+                    { blurPx: 0,                             shadowPx: Math.min(15, dynSpread * 0.4), alpha: Math.min(1, opacity * 0.85 * dynIntensity * strength) },
+                ];
+
+                passes.forEach(({ blurPx, shadowPx, alpha }) => {
+                    ctx.save();
+                    ctx.globalCompositeOperation = 'lighter';
+                    ctx.globalAlpha = alpha;
+                    ctx.filter = blurPx > 0
+                        ? `blur(${blurPx.toFixed(1)}px) drop-shadow(0 0 ${shadowPx.toFixed(1)}px ${glowColor})`
+                        : `drop-shadow(0 0 ${shadowPx.toFixed(1)}px ${glowColor})`;
+                    ctx.drawImage(img, -drawW / 2, -drawH / 2, drawW, drawH);
+                    ctx.restore();
+                });
+            }
+
+            // Draw the actual image — no filter, inherits waveOpacity from outer save
+            ctx.filter = 'none';
+            ctx.shadowBlur = 0;
+            ctx.shadowColor = 'transparent';
+            if (state.visuals.customShapeDropShadow) {
+                ctx.shadowColor = 'rgba(0,0,0,0.75)';
+                ctx.shadowBlur  = 18;
+                ctx.shadowOffsetY = 6;
+            }
+            ctx.drawImage(img, -drawW / 2, -drawH / 2, drawW, drawH);
+            ctx.shadowBlur = 0;
+            ctx.shadowColor = 'transparent';
+            ctx.shadowOffsetY = 0;
+
+            ctx.restore();
         }
         ctx.restore();
     }

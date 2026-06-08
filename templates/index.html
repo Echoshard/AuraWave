@@ -605,7 +605,32 @@
                                             <option value="triangle_down">2D Triangle (Downward)</option>
                                             <option value="hexagon">2D Hexagon</option>
                                             <option value="hexagon_prism">Rotating Hexagonal Prism (3D)</option>
+                                            <option value="custom_image">Custom PNG Image</option>
                                         </select>
+                                    </div>
+
+                                    <div class="setting-group" id="custom-shape-upload-group" style="display: none; margin-bottom: 0.75rem;">
+                                        <label class="setting-label">Custom Shape Image</label>
+                                        <div id="custom-shape-dropzone" class="dropzone" style="padding: 1rem; min-height: 80px; cursor: pointer;">
+                                            <i class="fa-solid fa-image dropzone-icon" style="font-size: 1.4rem;"></i>
+                                            <span class="dropzone-text" style="font-size: 0.82rem;">Click or drag a PNG to use as shape</span>
+                                            <span class="dropzone-sub">Transparent PNG works best</span>
+                                            <input type="file" id="custom-shape-input" accept="image/png,image/webp,image/gif" class="file-input">
+                                        </div>
+                                        <div class="file-loaded-banner" id="custom-shape-banner" style="display: none;">
+                                            <i class="fa-solid fa-circle-check success-icon"></i>
+                                            <span id="custom-shape-name" class="file-name"></span>
+                                            <button id="remove-custom-shape-btn" class="remove-file-btn" title="Remove image">
+                                                <i class="fa-solid fa-xmark"></i>
+                                            </button>
+                                        </div>
+                                        <div style="display: flex; align-items: center; gap: 0.6rem; margin-top: 0.5rem;">
+                                            <label class="toggle-switch">
+                                                <input type="checkbox" id="custom-shape-drop-shadow">
+                                                <span class="slider"></span>
+                                            </label>
+                                            <span style="font-size: 0.8rem; font-weight: 500; color: var(--text-secondary);">Drop Shadow</span>
+                                        </div>
                                     </div>
 
                                     <div class="setting-group" style="margin-bottom: 0.75rem;">
