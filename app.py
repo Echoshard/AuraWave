@@ -1,5 +1,6 @@
 import os
 import uuid
+import shutil
 import subprocess
 import logging
 import threading
@@ -48,6 +49,10 @@ def get_audio_duration(file_path):
     except Exception as e:
         logger.error(f"Error reading audio duration with ffprobe: {e}")
         return 10.0  # Fallback duration
+
+@app.route('/favicon.ico')
+def favicon():
+    return '', 204
 
 @app.route('/')
 def index():
@@ -111,13 +116,28 @@ def clean_uploads():
         logger.error(f"Failed to clean uploads folder: {e}")
         return jsonify({'error': str(e)}), 500
 
-def run_remux_thread(w_path, m_path, t_id, a_path, a_del_path):
-    """Run FFmpeg in a background thread to transcode WebM → H.264 MP4."""
+def run_remux_thread(video_input_args, m_path, t_id, a_path, a_del_path, cleanup_paths=None):
+    """Run FFmpeg in a background thread to transcode WebM → H.264 MP4.
+
+    video_input_args is the list of FFmpeg input args for the video source, e.g.
+        ['-i', webm_path]                                   (single WebM file)
+        ['-f', 'concat', '-safe', '0', '-i', concat_list]   (stream N segments)
+
+    Using the concat demuxer as a direct input means FFmpeg reads one segment
+    chunk at a time and writes the MP4 incrementally — no full-length WebM is
+    ever assembled in RAM or on disk, so peak memory is bounded regardless of
+    video length.
+
+    cleanup_paths lists temp files (segments, concat list, single WebM) to delete
+    once the transcode finishes.
+    """
+    cleanup_paths = cleanup_paths or []
+    process = None
     try:
         if a_path and os.path.exists(a_path):
             cmd = [
                 'ffmpeg', '-y',
-                '-i', w_path,
+                *video_input_args,
                 '-i', a_path,
                 '-c:v', 'libx264',
                 '-pix_fmt', 'yuv420p',
@@ -131,7 +151,7 @@ def run_remux_thread(w_path, m_path, t_id, a_path, a_del_path):
         else:
             cmd = [
                 'ffmpeg', '-y',
-                '-i', w_path,
+                *video_input_args,
                 '-c:v', 'libx264',
                 '-pix_fmt', 'yuv420p',
                 '-preset', 'fast',
@@ -139,6 +159,8 @@ def run_remux_thread(w_path, m_path, t_id, a_path, a_del_path):
                 m_path
             ]
         logger.info(f"Remuxing WebM to MP4: {' '.join(cmd)}")
+        # stderr is merged into stdout and drained line-by-line below, so FFmpeg's
+        # progress/warning output never accumulates in a memory buffer.
         process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, bufsize=1)
         for line in iter(process.stdout.readline, ''):
             line_str = line.strip()
@@ -155,10 +177,14 @@ def run_remux_thread(w_path, m_path, t_id, a_path, a_del_path):
         logger.error(f"Remux exception: {e}")
         render_tasks[t_id] = {'status': 'failed', 'url': None, 'error': str(e), 'last_log_line': ''}
     finally:
-        if os.path.exists(w_path):
-            try: os.remove(w_path)
+        if process and process.stdout:
+            try: process.stdout.close()
             except Exception: pass
-        if a_del_path and os.path.exists(a_del_path):
+        for p in cleanup_paths:
+            if p and os.path.exists(p):
+                try: os.remove(p)
+                except Exception: pass
+        if a_del_path and a_del_path not in cleanup_paths and os.path.exists(a_del_path):
             try: os.remove(a_del_path)
             except Exception: pass
 
@@ -223,7 +249,7 @@ def remux_video():
         'last_log_line': 'FFmpeg remuxing and audio transcoding starting...'
     }
     
-    thread = threading.Thread(target=run_remux_thread, args=(webm_path, mp4_path, task_id, audio_path, audio_to_delete))
+    thread = threading.Thread(target=run_remux_thread, args=(['-i', webm_path], mp4_path, task_id, audio_path, audio_to_delete, [webm_path]))
     thread.start()
     
     return jsonify({
@@ -252,11 +278,14 @@ def remux_segment_upload(session_id, seg_num):
         app.config['UPLOAD_FOLDER'],
         f"temp_{session_id}_s{seg_num:04d}.webm"
     )
+    # Stream the request body to disk in 1 MB chunks so the full segment is
+    # never held in RAM (request.data would buffer the whole body in memory).
     with open(seg_path, 'wb') as f:
-        f.write(request.data)
+        shutil.copyfileobj(request.stream, f, 1 << 20)
+    nbytes = os.path.getsize(seg_path)
     session['segments'][seg_num] = seg_path
-    logger.info(f"Segment {seg_num} received ({len(request.data)} bytes) for session {session_id}")
-    return jsonify({'ok': True, 'seg': seg_num, 'bytes': len(request.data)})
+    logger.info(f"Segment {seg_num} received ({nbytes} bytes) for session {session_id}")
+    return jsonify({'ok': True, 'seg': seg_num, 'bytes': nbytes})
 
 
 @app.route('/api/remux-chunk/<session_id>', methods=['POST'])
@@ -276,45 +305,43 @@ def remux_chunk(session_id):
 def remux_finalize(session_id):
     """Close the upload session and kick off FFmpeg transcoding.
 
-    If the session contains numbered segments (from the segment-based export),
-    they are concatenated with `ffmpeg -f concat` before the audio mux step.
-    This keeps browser RAM bounded to one segment at a time during encoding.
+    For the segment-based export, the segment files are fed straight into the
+    single transcode pass via FFmpeg's concat demuxer. No intermediate full-length
+    WebM is assembled — FFmpeg streams one segment chunk at a time and writes the
+    MP4 incrementally, so server memory stays bounded no matter how long the video
+    is. (The previous two-step concat-then-transcode built a giant WebM and
+    buffered FFmpeg's per-frame warnings in RAM via subprocess.run.)
     """
     session = remux_sessions.pop(session_id, None)
     if not session:
         return jsonify({'error': 'Invalid or expired session'}), 404
 
     segments = session.get('segments', {})
+    cleanup_paths = []
 
     if segments:
-        # Segment-based export: concat N WebM files into one before transcoding
+        # Segment-based export: stream the segment files directly through the
+        # concat demuxer. The concat list is consumed by the transcode thread,
+        # so the segments + list are cleaned up there (not here).
         sorted_paths = [segments[k] for k in sorted(segments.keys())]
         concat_list  = os.path.join(app.config['UPLOAD_FOLDER'], f"temp_{session_id}_concat.txt")
-        webm_path    = os.path.join(app.config['UPLOAD_FOLDER'], f"temp_{session_id}.webm")
-
         with open(concat_list, 'w') as f:
             for p in sorted_paths:
-                f.write(f"file '{p}'\n")
-
-        try:
-            result = subprocess.run(
-                ['ffmpeg', '-y', '-f', 'concat', '-safe', '0',
-                 '-i', concat_list, '-c', 'copy', webm_path],
-                stdout=subprocess.PIPE, stderr=subprocess.PIPE
-            )
-            if result.returncode != 0:
-                err = result.stderr.decode(errors='replace')
-                logger.error(f"FFmpeg concat failed: {err}")
-                return jsonify({'error': f'Segment concat failed: {err[:200]}'}), 500
-            logger.info(f"Concatenated {len(sorted_paths)} segments → {webm_path}")
-        finally:
-            try: os.remove(concat_list)
-            except Exception: pass
-            for p in sorted_paths:
-                try: os.remove(p)
-                except Exception: pass
+                # concat demuxer: forward slashes are safe cross-platform; escape single quotes
+                safe_p = os.path.abspath(p).replace('\\', '/').replace("'", "'\\''")
+                f.write(f"file '{safe_p}'\n")
+        # +genpts cleanly regenerates presentation timestamps across the segment
+        # boundaries (each segment restarts its timestamps at 0 on the client).
+        video_input_args = ['-fflags', '+genpts', '-f', 'concat', '-safe', '0', '-i', concat_list]
+        cleanup_paths.extend(sorted_paths)
+        cleanup_paths.append(concat_list)
+        if session.get('webm_path'):          # empty placeholder from remux-start
+            cleanup_paths.append(session['webm_path'])
+        logger.info(f"Finalizing {len(sorted_paths)} segments via concat demuxer for session {session_id}")
     else:
         webm_path = session['webm_path']
+        video_input_args = ['-i', webm_path]
+        cleanup_paths.append(webm_path)
 
     export_name = request.form.get('export_name', '')
     if export_name.lower().endswith('.mp4'):
@@ -338,7 +365,10 @@ def remux_finalize(session_id):
             audio_path = candidate
 
     render_tasks[task_id] = {'status': 'processing', 'error': None, 'url': f'/exports/{task_id}', 'last_log_line': 'FFmpeg starting...'}
-    threading.Thread(target=run_remux_thread, args=(webm_path, mp4_path, task_id, audio_path, audio_to_delete)).start()
+    threading.Thread(
+        target=run_remux_thread,
+        args=(video_input_args, mp4_path, task_id, audio_path, audio_to_delete, cleanup_paths)
+    ).start()
     return jsonify({'status': 'processing', 'task_id': task_id, 'url': f'/exports/{task_id}'})
 
 

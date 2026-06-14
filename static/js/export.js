@@ -1,9 +1,11 @@
 /* AuraWave — Segment-Based WebCodecs Export
  *
- * Memory model: video is encoded in 15-second segments. Each segment's
- * ArrayBufferTarget (~7 MB at 4 Mbps) is uploaded then discarded before
- * the next segment begins. Peak browser RAM is constant regardless of
- * total video length. No CDN dependency at render time.
+ * Memory model: video is encoded in short segments. Each segment's encoder,
+ * muxer and ArrayBufferTarget are flushed, uploaded, then discarded before the
+ * next segment begins, so the VP9 encoder's internal frame buffers are released
+ * frequently and peak browser RAM stays bounded regardless of total video
+ * length. Shorter segments = lower peak RAM (at the cost of more HTTP requests).
+ * No CDN dependency at render time.
  *
  * Requires: /static/js/vendor/webm-muxer.js loaded before this file
  *           (places Muxer + ArrayBufferTarget on window.WebMMuxer)
@@ -106,11 +108,16 @@ function extractTimeDomainBins(buffer, time) {
     return output;
 }
 
+// Reusable FFT scratch buffers — avoids allocating two Float32Array(512) on
+// every one of the thousands of frames in a render.
+let _fftRe = null, _fftIm = null;
+
 // Extract 256-bin frequency magnitudes from an AudioBuffer at a given time
 function extractFFTBins(buffer, time, prevSmoothed, smoothing) {
     const N = 512;
-    const re = new Float32Array(N);
-    const im = new Float32Array(N);
+    if (!_fftRe || _fftRe.length !== N) { _fftRe = new Float32Array(N); _fftIm = new Float32Array(N); }
+    const re = _fftRe;
+    const im = _fftIm;
     const sampleRate   = buffer.sampleRate;
     const centerSample = Math.floor(time * sampleRate);
     const startSample  = centerSample - 256;
@@ -245,6 +252,17 @@ function audioBufferToWav(buffer) {
 // ─── Main export ─────────────────────────────────────────────────────────────
 
 async function runClientSideExport(previewMode = false) {
+    // Guard: WebCodecs VideoEncoder requires Chrome/Edge 94+ in a secure context
+    if (typeof VideoEncoder === 'undefined') {
+        alert(
+            'Export requires the WebCodecs API (VideoEncoder).\n\n' +
+            'Please use Google Chrome or Microsoft Edge (version 94+) and access the app via http://localhost:5000 — ' +
+            'not via an IP address or hostname.\n\n' +
+            'Firefox and Safari do not support VideoEncoder.'
+        );
+        return;
+    }
+
     // Guard: webm-muxer must be loaded from the script tag
     const webmLib = window.WebMMuxer;
     if (!webmLib || !webmLib.Muxer || !webmLib.ArrayBufferTarget) {
@@ -347,7 +365,9 @@ async function runClientSideExport(previewMode = false) {
     }
 
     // ── Segment constants ────────────────────────────────────────────────────
-    const SEGMENT_SECONDS = 15;                        // ~7 MB per segment at 4 Mbps
+    const SEGMENT_SECONDS = 6;                         // short segments → encoder/muxer
+                                                       // state is flushed & freed often,
+                                                       // keeping peak browser RAM low
     const FPS             = 30;
     const totalFrames     = Math.ceil(duration * FPS);
     const numSegments     = Math.ceil(duration / SEGMENT_SECONDS);
@@ -420,15 +440,18 @@ async function runClientSideExport(previewMode = false) {
                 });
                 frame.close();
 
-                // Drain encoder queue to keep VideoFrame memory bounded
-                if (segEncoder.encodeQueueSize > 4) {
-                    while (segEncoder.encodeQueueSize > 2 && !isCancelled)
-                        await yieldToEventLoop();
+                // Drain the encoder queue every frame so at most ~2 VideoFrames
+                // (each ~8 MB off a 1080p canvas) are ever in flight. Keeps peak
+                // browser memory flat instead of letting the queue grow to 5.
+                while (segEncoder.encodeQueueSize > 2 && !isCancelled) {
+                    await yieldToEventLoop();
                 }
 
-                // Yield every 5 frames — gives GC time to reclaim canvas shadow
-                // blur intermediate buffers before the next renderFrame() call
-                if ((f - segFirstFrame) % 5 === 0) await yieldToEventLoop();
+                // Yield every frame so the GC/compositor can reclaim the canvas
+                // shadow-blur surfaces and the just-closed VideoFrame before the
+                // next renderFrame(). Without this the renderer process memory
+                // climbs steadily on long renders until the tab OOM-crashes.
+                await yieldToEventLoop();
 
                 // Progress bar
                 const pct = Math.min(94, Math.floor((f / totalFrames) * 94));
@@ -471,8 +494,13 @@ async function runClientSideExport(previewMode = false) {
             );
             if (!uploadRes.ok) throw new Error(`Segment ${seg + 1} upload failed`);
 
-            // segTarget, segMuxer, segEncoder all go out of scope here.
-            // The GC can now reclaim the ~7 MB ArrayBuffer.
+            // segTarget, segMuxer, segEncoder all go out of scope here. Yield a
+            // couple of event-loop turns so the GC actually reclaims this
+            // segment's ArrayBuffer and the encoder's internal frame buffers
+            // BEFORE the next segment constructs its own — otherwise two
+            // segments' worth of memory can briefly coexist.
+            await yieldToEventLoop();
+            await yieldToEventLoop();
         }
 
         if (isCancelled) {

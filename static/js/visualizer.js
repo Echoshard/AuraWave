@@ -256,6 +256,10 @@ function hexToRgba(hex, alpha) {
 let noisePattern = null;
 let offscreenCanvas = null;
 
+// Reusable analyser readout buffers — renderFrame runs thousands of times per
+// export, so we allocate these once and reuse them instead of per frame.
+let _specBuf = null, _timeBuf = null;
+
 // === Post-processing scratch buffers (shared by Glitch / Heat / VHS) ===
 let fxScratchA = null, fxScratchB = null;
 function getFxScratch(which, w, h) {
@@ -527,13 +531,20 @@ function setupParticles() {
     for (let i = 0; i < count; i++) {
         let speedY, speedX, size, glow, shape;
         let char = null, charTimer = 0, charInterval = 8;
+        let swayAmp = 0, swayFreq = 0, swayPhase = 0, flicker = false, flickerPhase = 0;
 
         if (style === 'embers') {
             speedY = dirMult * (Math.random() * state.fx.particleSpeed + 0.2);
-            speedX = (Math.random() - 0.5) * 0.9;
+            speedX = (Math.random() - 0.5) * 0.35;       // gentle base lateral drift
             size = Math.random() * state.fx.particleSize + 0.5;
             glow = Math.random() > 0.5;
             shape = 'circle';
+            // Per-ember serpentine flutter riding the heat currents
+            swayAmp = Math.random() * 0.8 + 0.5;
+            swayFreq = Math.random() * 1.6 + 0.8;
+            swayPhase = Math.random() * Math.PI * 2;
+            flicker = true;
+            flickerPhase = Math.random() * Math.PI * 2;
         } else if (style === 'rain') {
             speedY = dirMult * (Math.random() * state.fx.particleSpeed + 0.5);
             speedX = 0;
@@ -566,7 +577,8 @@ function setupParticles() {
         state.visuals.particles.push({
             x: Math.random() * canvasW, y: Math.random() * canvasH,
             size, speedY, speedX, color, glow, shape,
-            char, charTimer, charInterval
+            char, charTimer, charInterval,
+            swayAmp, swayFreq, swayPhase, flicker, flickerPhase
         });
     }
 }
@@ -769,9 +781,12 @@ function renderFrame() {
 
     if (state.audio.analyser) {
         bufferLength = state.audio.analyser.frequencyBinCount;
-        dataArray = new Uint8Array(bufferLength);
+        if (!_specBuf || _specBuf.length !== bufferLength) _specBuf = new Uint8Array(bufferLength);
+        dataArray = _specBuf;
         state.audio.analyser.getByteFrequencyData(dataArray);
-        timeDomainArray = new Uint8Array(state.audio.analyser.fftSize);
+        const fftSize = state.audio.analyser.fftSize;
+        if (!_timeBuf || _timeBuf.length !== fftSize) _timeBuf = new Uint8Array(fftSize);
+        timeDomainArray = _timeBuf;
         state.audio.analyser.getByteTimeDomainData(timeDomainArray);
 
         let bassSum = 0;
@@ -976,17 +991,19 @@ function renderFrame() {
         ctx.restore();
     }
 
-    // Cutout in-front of shape visualizer
-    if (state.visuals.fgLayerPosition === 'infront') {
-        drawForegroundCutout();
-    }
-
     // --- 3. Draw Ambient Particles FX ---
     if (state.fx.particles && state.visuals.particles.length) {
         state.visuals.particles.forEach(p => {
             const speedMultiplier = 1.0 + Math.min(2.5, Math.max(0, pulseScale - 1.0) * 50);
             p.y += p.speedY * speedMultiplier;
-            p.x += p.speedX;
+
+            if (p.swayAmp) {
+                // Wavey ember flutter: oscillating lateral velocity = serpentine drift
+                p.swayPhase += p.swayFreq * 0.045 * speedMultiplier;
+                p.x += Math.sin(p.swayPhase) * p.swayAmp + p.speedX;
+            } else {
+                p.x += p.speedX;
+            }
 
             if (p.speedY < 0 && p.y < 0) {
                 p.y = height;
@@ -1026,15 +1043,21 @@ function renderFrame() {
                 }
                 ctx.fillText(p.char, p.x, p.y);
             } else {
+                let drawSize = p.size;
+                if (p.flicker) {
+                    // Embers pulse in brightness/size as they burn
+                    p.flickerPhase += 0.35;
+                    drawSize = p.size * (0.7 + Math.abs(Math.sin(p.flickerPhase)) * 0.6);
+                }
                 ctx.beginPath();
                 if (p.glow && pulseScale > 1.01 && state.visuals.glowEnabled) {
                     ctx.shadowColor = getGlowColor(state.visuals.color);
                     ctx.shadowBlur = Math.min(80, 15 * (state.visuals.glowStrength !== undefined ? state.visuals.glowStrength : 1.0));
-                    ctx.arc(p.x, p.y, p.size * 1.8, 0, Math.PI * 2);
+                    ctx.arc(p.x, p.y, drawSize * 1.8, 0, Math.PI * 2);
                 } else {
                     ctx.shadowColor = 'transparent';
                     ctx.shadowBlur = 0;
-                    ctx.arc(p.x, p.y, p.size, 0, Math.PI * 2);
+                    ctx.arc(p.x, p.y, drawSize, 0, Math.PI * 2);
                 }
                 ctx.fill();
             }
@@ -1646,6 +1669,11 @@ function renderFrame() {
             ctx.restore();
         }
         ctx.restore();
+    }
+
+    // Foreground cutout layered in front of the visualizer (shapes or waveform)
+    if (state.visuals.fgLayerPosition === 'infront') {
+        drawForegroundCutout();
     }
 
     // --- 5. Draw Vignette shader effect ---
