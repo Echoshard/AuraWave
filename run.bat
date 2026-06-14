@@ -1,7 +1,7 @@
 @echo off
-title AuraWave Premium Launcher
+title AuraWave Launcher
 echo ====================================================================
-echo    AURAWARE - PREMIUM AUDIO-TO-VIDEO CREATOR
+echo    AURAWARE - AUDIO-TO-VIDEO CREATOR
 echo ====================================================================
 echo.
 
@@ -61,9 +61,7 @@ if %errorlevel% neq 0 (
 echo.
 
 REM ── Step 4 & 5: Launch ───────────────────────────────────────────────────────
-echo [4/5] Launching local browser interface...
-start http://localhost:5000
-echo.
+
 
 echo [5/5] Starting AuraWave Flask Server...
 echo ====================================================================
@@ -72,5 +70,5 @@ echo  Keep this terminal window open while using the application.
 echo  To shut down the server, close this window or press Ctrl+C here.
 echo ====================================================================
 echo.
-"%VENV_PY%" app.py
+"%VENV_PY%" desktop.py
 pause

@@ -35,6 +35,16 @@ os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 os.makedirs(EXPORT_FOLDER, exist_ok=True)
 os.makedirs(TEMPLATE_FOLDER, exist_ok=True)
 
+# Clean uploads folder on startup
+try:
+    for filename in os.listdir(UPLOAD_FOLDER):
+        file_path = os.path.join(UPLOAD_FOLDER, filename)
+        if os.path.isfile(file_path):
+            os.remove(file_path)
+    logger.info("Successfully cleaned uploads folder on startup.")
+except Exception as e:
+    logger.error(f"Failed to clean uploads folder on startup: {e}")
+
 app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
 app.config['EXPORT_FOLDER'] = EXPORT_FOLDER
 app.config['MAX_CONTENT_LENGTH'] = 600 * 1024 * 1024  # 600 MB — supports ~20 min at 4 Mbps
@@ -445,6 +455,14 @@ def remux_finalize(session_id):
         export_name = export_name[:-4]
     safe_name = secure_filename(export_name) or f"remux_{uuid.uuid4()}"
     task_id = f"{safe_name}.mp4"
+    
+    # Make sure it doesn't overwrite: append _1, _2, etc. if file exists
+    base, ext = os.path.splitext(task_id)
+    counter = 1
+    while os.path.exists(os.path.join(app.config['EXPORT_FOLDER'], task_id)):
+        task_id = f"{base}_{counter}{ext}"
+        counter += 1
+        
     mp4_path = os.path.join(app.config['EXPORT_FOLDER'], task_id)
 
     audio_path = None

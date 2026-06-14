@@ -105,13 +105,13 @@ function setupCombinerDropzone(dropzone, input) {
 
 // Handle selected file validation and upload queue
 function handleCombinerFiles(files) {
-    const sizeLimit = 100 * 1024 * 1024; // 100MB limit per file
+    const sizeLimit = 500 * 1024 * 1024; // 500MB limit per file
     const allowedExtensions = ['mp4', 'webm', 'mov'];
     
     // Upload files
     Array.from(files).forEach(file => {
         if (file.size > sizeLimit) {
-            alert(`File "${file.name}" exceeds 100MB upload limit.`);
+            alert(`File "${file.name}" exceeds 500MB upload limit.`);
             return;
         }
         const ext = file.name.split('.').pop().toLowerCase();
@@ -403,14 +403,26 @@ function startCombinerMerge() {
                         elements.renderModal.style.display = 'none';
                     };
                     elements.btnDownloadExport.style.display = 'block';
-                    
+                    if (state.export.isDesktop) {
+                        elements.btnDownloadExport.innerText = 'Show in Folder';
+                    } else {
+                        elements.btnDownloadExport.innerText = 'Download Video';
+                    }
                     elements.btnDownloadExport.onclick = () => {
+                        if (state.export.isDesktop && window.pywebview && window.pywebview.api) {
+                            window.pywebview.api.open_file_in_explorer(taskFilename);
+                            elements.renderModal.style.display = 'none';
+                            return;
+                        }
                         const a = document.createElement('a');
                         a.href = statusData.url;
                         a.download = `merged_${new Date().getTime()}.mp4`;
                         a.click();
                         elements.renderModal.style.display = 'none';
                     };
+                    if (state.export.isDesktop && window.pywebview && window.pywebview.api) {
+                        window.pywebview.api.open_file_in_explorer(taskFilename);
+                    }
                 } else if (statusData.status === 'failed') {
                     clearInterval(pollInterval);
                     elements.renderPercent.innerText = 'ERR';

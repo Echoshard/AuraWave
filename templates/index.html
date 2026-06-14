@@ -3,12 +3,12 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>AuraWave - Premium Audio Video Creator</title>
+    <title>AuraWave - Audio Video Creator</title>
     <!-- Google Fonts -->
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Outfit:wght@400;500;600;700;800&family=Montserrat:wght@400;600;800&family=Playfair+Display:ital,wght@0,700;1,400&family=Space+Grotesk:wght@500;700&family=Poppins:wght@400;500;600;700&family=Bebas+Neue&family=Lobster&family=Anton&family=Righteous&family=Permanent+Marker&family=Pacifico&family=Bungee&family=Fredoka+One&family=Cinzel:wght@700&family=Oswald:wght@500;700&display=swap" rel="stylesheet">
-    <!-- FontAwesome for Premium Icons -->
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Outfit:wght@400;500;600;700;800&family=Montserrat:wght@400;600;800&family=Playfair+Display:ital,wght@0,700;1,400&family=Space+Grotesk:wght@500;700&family=Poppins:wght@400;500;600;700&family=Bebas+Neue&family=Lobster&family=Anton&family=Righteous&family=Permanent+Marker&family=Pacifico&family=Bungee&family=Fredoka+One&family=Cinzel:wght@700&family=Oswald:wght@500;700&family=Pixelify+Sans&family=Silkscreen&family=Press+Start+2P&family=Orbitron:wght@500;800&family=Chakra+Petch:wght@600&family=Russo+One&family=Cinzel+Decorative:wght@700&family=MedievalSharp&family=Metamorphous&display=swap" rel="stylesheet">
+    <!-- FontAwesome for Icons -->
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <!-- Custom Stylesheet -->
     <link rel="stylesheet" href="/static/css/styles.css">
@@ -34,6 +34,19 @@
                 </button>
             </div>
             <div class="header-badges">
+                <div class="template-tools" aria-label="Visualizer templates">
+                    <select class="template-select" id="template-select" title="Saved templates">
+                        <option value="">Templates</option>
+                    </select>
+                    <button class="template-btn" id="btn-save-template" type="button" title="Save template">
+                        <i class="fa-solid fa-floppy-disk"></i>
+                        <span>Save</span>
+                    </button>
+                    <button class="template-btn" id="btn-load-template" type="button" title="Load template">
+                        <i class="fa-solid fa-folder-open"></i>
+                        <span>Load</span>
+                    </button>
+                </div>
                 <span class="badge" id="badge-gpu" style="display: none;">
                     <i class="fa-solid fa-bolt"></i> GPU Accelerated
                     <span class="tooltip">
@@ -76,9 +89,6 @@
                     <div class="tab-pane active" id="tab-media">
                         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem; border-bottom: 1px solid rgba(255,255,255,0.06); padding-bottom: 0.5rem;">
                             <h2 class="section-title" style="margin: 0;">Configure Assets</h2>
-                            <button id="clean-uploads-btn" class="action-btn danger-btn" style="padding: 0.45rem 0.9rem; font-size: 0.8rem; border-radius: 6px; background: rgba(239, 68, 68, 0.15); border: 1px solid rgba(239, 68, 68, 0.35); color: #fca5a5; cursor: pointer; display: flex; align-items: center; gap: 0.5rem; transition: all 0.2s; font-family: 'Inter', sans-serif; font-weight: 500;">
-                                <i class="fa-solid fa-trash-can"></i> Clean Uploads
-                            </button>
                         </div>
                         
                         <!-- Audio File Dropzone -->
@@ -230,7 +240,7 @@
 
                         <!-- Gradient Presets -->
                         <div class="setting-group">
-                            <label class="setting-label">Or Choose a Premium Gradient Preset</label>
+                            <label class="setting-label">Or Choose a Gradient Preset</label>
                             <div class="gradient-grid" id="gradient-presets">
                                 <!-- Generated Dynamically -->
                             </div>
@@ -1169,11 +1179,28 @@
                             <div class="setting-group">
                                 <label class="setting-label">Typography Style</label>
                                 <select id="font-family" class="select-input">
-                                    <option value="Outfit" selected>Outfit (Clean Futuristic)</option>
-                                    <option value="Space Grotesk">Space Grotesk (Tech Geometric)</option>
-                                    <option value="Montserrat">Montserrat (Bold Classic)</option>
-                                    <option value="Playfair Display">Playfair Display (Classy Editorial)</option>
-                                    <option value="Inter">Inter (Sleek Minimalist)</option>
+                                    <optgroup label="Modern & Tech">
+                                        <option value="Outfit" selected>Outfit (Futuristic)</option>
+                                        <option value="Space Grotesk">Space Grotesk (Geometric)</option>
+                                        <option value="Inter">Inter (Minimalist)</option>
+                                        <option value="Montserrat">Montserrat (Classic)</option>
+                                    </optgroup>
+                                    <optgroup label="Sci-Fi & Cyber">
+                                        <option value="Orbitron">Orbitron (Cyber Scifi)</option>
+                                        <option value="Chakra Petch">Chakra Petch (Tech Cyber)</option>
+                                        <option value="Russo One">Russo One (Sci-fi Bold)</option>
+                                    </optgroup>
+                                    <optgroup label="Gamer & Pixel">
+                                        <option value="Pixelify Sans">Pixelify Sans (Retro Pixel)</option>
+                                        <option value="Silkscreen">Silkscreen (Tiny Pixel)</option>
+                                        <option value="Press Start 2P">Press Start 2P (8-Bit Gamer)</option>
+                                    </optgroup>
+                                    <optgroup label="Fantasy & Classic">
+                                        <option value="Cinzel Decorative">Cinzel Decorative (Magic Fantasy)</option>
+                                        <option value="MedievalSharp">MedievalSharp (Gothic Fantasy)</option>
+                                        <option value="Metamorphous">Metamorphous (Mythic Fantasy)</option>
+                                        <option value="Playfair Display">Playfair Display (Elegant Serif)</option>
+                                    </optgroup>
                                 </select>
                             </div>
 
@@ -1306,13 +1333,54 @@
                         <h2 class="section-title" style="margin: 0;"><i class="fa-solid fa-server text-glow-blue"></i> Server Render Video</h2>
                         <span class="version-badge">FFmpeg H.264 / AAC</span>
                     </div>
+                    <!-- Hidden configuration toggles used by javascript engines internally -->
+                    <div style="display: none;">
+                        <input type="checkbox" id="fast-client-render-toggle" checked>
+                        <input type="checkbox" id="prefer-software-encoding-toggle" checked>
+                        <input type="checkbox" id="optimize-glow-passes-toggle" checked>
+                    </div>
+                    <div id="desktop-resolution-row" style="display: none; align-items: center; justify-content: space-between; gap: 1rem; width: 100%; margin-bottom: 0.9rem; padding: 0.8rem 0.95rem; border: 1px solid rgba(255,255,255,0.08); border-radius: 8px; background: rgba(255,255,255,0.035);">
+                        <span style="display: flex; flex-direction: column; gap: 0.15rem;">
+                            <span style="font-size: 0.86rem; font-weight: 700; color: var(--text-primary);">Export Resolution</span>
+                            <span style="font-size: 0.72rem; color: var(--text-muted);">Configure target video resolution for desktop native render.</span>
+                        </span>
+                        <select id="desktop-resolution-select" class="select-input" style="width: 150px; cursor: pointer;">
+                            <option value="1080" selected>1080p (Full HD)</option>
+                            <option value="1440">1440p (2K)</option>
+                            <option value="2160">2160p (4K UHD)</option>
+                        </select>
+                    </div>
+                    <details style="width: 100%; margin-bottom: 0.9rem; border: 1px solid rgba(255,255,255,0.08); border-radius: 8px; background: rgba(255,255,255,0.035); overflow: hidden;">
+                        <summary style="cursor: pointer; list-style: none; display: flex; align-items: center; justify-content: space-between; gap: 1rem; padding: 0.8rem 0.95rem;">
+                            <span style="display: flex; flex-direction: column; gap: 0.15rem;">
+                                <span style="font-size: 0.86rem; font-weight: 700; color: var(--text-primary);">FFmpeg output preset</span>
+                                <span id="ffmpeg-preset-summary" style="font-size: 0.72rem; color: var(--text-muted);">Balanced MP4: CRF 18, fast, AAC 192k</span>
+                            </span>
+                            <i class="fa-solid fa-chevron-down" style="color: var(--text-muted); font-size: 0.8rem;"></i>
+                        </summary>
+                        <div style="padding: 0 0.95rem 0.95rem;">
+                            <div id="ffmpeg-output-preset" data-value="balanced" style="display: grid; gap: 0.45rem; margin-bottom: 0.65rem;">
+                                <button type="button" class="ffmpeg-preset-option active" data-value="balanced" style="text-align: left; padding: 0.65rem 0.75rem; border: 1px solid rgba(99,102,241,0.45); border-radius: 8px; background: rgba(99,102,241,0.18); color: var(--text-primary); cursor: pointer;">Balanced - CRF 18 / fast / AAC 192k</button>
+                                <button type="button" class="ffmpeg-preset-option" data-value="high" style="text-align: left; padding: 0.65rem 0.75rem; border: 1px solid rgba(255,255,255,0.08); border-radius: 8px; background: rgba(255,255,255,0.035); color: var(--text-secondary); cursor: pointer;">High Quality - CRF 16 / slow / AAC 256k</button>
+                                <button type="button" class="ffmpeg-preset-option" data-value="archival" style="text-align: left; padding: 0.65rem 0.75rem; border: 1px solid rgba(255,255,255,0.08); border-radius: 8px; background: rgba(255,255,255,0.035); color: var(--text-secondary); cursor: pointer;">Archival - CRF 14 / slow / AAC 320k</button>
+                                <button type="button" class="ffmpeg-preset-option" data-value="small" style="text-align: left; padding: 0.65rem 0.75rem; border: 1px solid rgba(255,255,255,0.08); border-radius: 8px; background: rgba(255,255,255,0.035); color: var(--text-secondary); cursor: pointer;">Smaller File - CRF 23 / medium / AAC 160k</button>
+                                <button type="button" class="ffmpeg-preset-option" data-value="draft" style="text-align: left; padding: 0.65rem 0.75rem; border: 1px solid rgba(255,255,255,0.08); border-radius: 8px; background: rgba(255,255,255,0.035); color: var(--text-secondary); cursor: pointer;">Draft Fast - CRF 28 / veryfast / AAC 128k</button>
+                            </div>
+                            <div style="font-size: 0.72rem; line-height: 1.45; color: var(--text-muted);">
+                                Lower CRF means higher visual quality and larger files. Slower presets improve compression but take longer during final MP4 encoding.
+                            </div>
+                        </div>
+                    </details>
                     <!-- Rendering trigger action button -->
-                    <div style="display: flex; gap: 0.75rem; width: 100%;">
-                        <button class="render-trigger-btn" id="btn-export-preview" style="flex: 0 0 calc(25% - 0.5625rem); background: rgba(99,102,241,0.18); border-color: rgba(99,102,241,0.4); font-size: 0.85rem; padding: 0.75rem 0.5rem; text-align: center; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;" title="Render Preview">
+                    <div style="display: flex; gap: 0.5rem; width: 100%;">
+                        <button class="render-trigger-btn" id="btn-open-exports" type="button" style="flex: 1; background: rgba(255,255,255,0.06); border-color: rgba(255,255,255,0.12); font-size: 0.8rem; padding: 0.75rem 0.25rem; text-align: center; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--text-secondary); display: none;" title="Open Exports Folder">
+                            <i class="fa-solid fa-folder-open"></i> Open Exports
+                        </button>
+                        <button class="render-trigger-btn" id="btn-export-preview" type="button" style="flex: 1; background: rgba(99,102,241,0.18); border-color: rgba(99,102,241,0.4); font-size: 0.8rem; padding: 0.75rem 0.25rem; text-align: center; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;" title="Render Preview">
                             <i class="fa-solid fa-eye"></i> Render Preview
                         </button>
-                        <button class="render-trigger-btn" id="btn-export" style="flex: 0 0 calc(75% - 0.1875rem);">
-                            <i class="fa-solid fa-film"></i> Render Full Video
+                        <button class="render-trigger-btn" id="btn-export" type="button" style="flex: 2; font-size: 0.85rem; padding: 0.75rem 0.5rem;">
+                            <i class="fa-solid fa-film"></i> Render full video
                         </button>
                     </div>
                 </div>
@@ -1332,7 +1400,7 @@
                         <div class="dropzone" id="combiner-dropzone">
                             <i class="fa-solid fa-cloud-arrow-up dropzone-icon"></i>
                             <span class="dropzone-text">Drag & drop videos, or click to browse</span>
-                            <span class="dropzone-sub">Supports MP4, WEBM, MOV (Max 100MB per clip)</span>
+                            <span class="dropzone-sub">Supports MP4, WEBM, MOV (Max 500MB per clip)</span>
                             <input type="file" id="combiner-input" accept="video/*" class="file-input" multiple>
                         </div>
                     </div>

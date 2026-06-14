@@ -153,6 +153,11 @@
     transition: var(--transition-smooth);
 }
 
+select option, select optgroup {
+    background-color: #0f0f13 !important;
+    color: var(--text-primary) !important;
+}
+
 .select-input:focus, .text-input:focus {
     border-color: var(--primary);
     box-shadow: 0 0 10px rgba(99, 102, 241, 0.15);

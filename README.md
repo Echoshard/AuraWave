@@ -1,6 +1,6 @@
-# AuraWave - Audio-to-Video Creator
+# AuraWave - Python Desktop Audio-to-Video Creator
 
-AuraWave is a hardware-accelerated audio visualizer that compiles viewport-accurate MP4 videos (H.264 / AAC) with zero frame drops. By combining client-side WebCodecs API encoding with server-side FFmpeg remuxing, it delivers visually lossless visualizers at high speeds.
+AuraWave is a native desktop audio visualizer and video creator built with Python (`pywebview` + Flask) and HTML5 Canvas. It compiles viewport-accurate, high-fidelity MP4 videos (H.264 / AAC) up to 4K UHD with zero frame drops by piping frame streams directly from the canvas to a local FFmpeg compiler, completely bypassing browser memory leaks.
 
 
 <img width="1569" height="1213" alt="image" src="https://github.com/user-attachments/assets/2a56ac3c-dba7-4d20-9300-1cb8a73effc2" />
@@ -112,34 +112,42 @@ Shapes mode renders a single glowing geometric object at the center of the canva
 
 ### Prerequisites
 - Python 3.8+
-- A modern Chromium browser (Chrome, Edge, Brave) with WebCodecs support — accessed via `http://localhost:5000`
-
-> **FFmpeg** is recommended to have installed and available on your PATH before running. `run.bat` will attempt to install it automatically via `winget` if it is not found, but for best results install it manually from [ffmpeg.org](https://ffmpeg.org/download.html) and add it to your PATH first.
+- FFmpeg (recommended to have installed and available on your PATH. `run.bat` will attempt to install it automatically via `winget` if it is not found, but for best results install it manually from [ffmpeg.org](https://ffmpeg.org/download.html) and add it to your PATH first).
 
 ### Running the Application
 Double-click **`run.bat`**. It will:
 1. Install FFmpeg via winget if not already present
 2. Create an isolated Python virtual environment (`.env`) on first run
-3. Install all Python dependencies into that environment
-4. Open `http://localhost:5000` in your browser
-5. Start the Flask server
+3. Install all Python dependencies (including `pywebview` and `Flask`) into that environment
+4. Launch the AuraWave native desktop application window via `desktop.py`
 
-Or run manually:
+Or run manually (Desktop App):
 ```bash
 # 1. Install dependencies
 pip install -r requirements.txt
 
-# 2. Start the application
+# 2. Start the desktop application
+python desktop.py
+```
+
+### Running in Web Browser Mode
+If you prefer running AuraWave inside a standard web browser (Chrome, Edge, Brave, etc.), you can run the Flask server standalone:
+```bash
+# 1. Install dependencies
+pip install -r requirements.txt
+
+# 2. Start the web server
 python app.py
 ```
-Open your browser to `http://localhost:5000`.
+Open your browser to `http://localhost:5000`. Note that native 4K canvas piping is only supported in the Desktop App; browser mode will use client-side WebCodecs segment encoding.
 
 ---
 
 ## Key File Structure
 
-- `app.py`: Flask web server, upload handling, and background task FFmpeg remuxing.
-- `static/js/export.js`: WebCodecs offline renderer, Radix-2 FFT logic, and WAV PCM encoder.
+- `desktop.py`: The desktop runner. Spawns the local Flask server and opens the native `pywebview` shell window with a Python-to-JavaScript communication bridge.
+- `app.py`: Flask web server, upload handling, templates, and background task FFmpeg remuxing/combining.
+- `static/js/export.js`: WebCodecs offline segment renderer, Radix-2 FFT logic, and WAV PCM encoder; also integrates the desktop native export pipe.
 - `static/js/visualizer.js`: Preview rendering, particle engine, FX post-processing, and bloom/glow pipeline.
 - `static/js/synth.js`: Web Audio synthesizers and chord progression loops.
 - `static/js/core.js`: Global state management and UI event routing.

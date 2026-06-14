@@ -155,6 +155,8 @@ const state = {
     },
     export: {
         method: 'server_exact', // server_exact or client
+        preferSoftware: true,
+        optimizeGlows: true,
         recorder: null,
         recordedChunks: [],
         isRecording: false,
@@ -1543,9 +1545,9 @@ function setupDropzone(dropzone, input, type, successCallback) {
 }
 
 function handleFileSelection(file, type, callback) {
-    const sizeLimit = 100 * 1024 * 1024;
+    const sizeLimit = 500 * 1024 * 1024;
     if (file.size > sizeLimit) {
-        alert('File exceeds 100MB upload limit.');
+        alert('File exceeds 500MB upload limit.');
         return;
     }
     const ext = file.name.split('.').pop().toLowerCase();

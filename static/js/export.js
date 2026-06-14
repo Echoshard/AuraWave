@@ -50,14 +50,39 @@ function syncVideoToTime(video, time) {
 }
 
 document.addEventListener('DOMContentLoaded', () => {
-    state.export.method = 'server_exact';
+    state.export.method = 'client';
 
     const fastClientToggle = document.getElementById('fast-client-render-toggle');
+    const desktopResolutionRow = document.getElementById('desktop-resolution-row');
+
+    const updateUIState = () => {
+        if (desktopResolutionRow) {
+            desktopResolutionRow.style.display = state.export.isDesktop ? 'flex' : 'none';
+        }
+        const btnOpenExports = document.getElementById('btn-open-exports');
+        if (btnOpenExports) {
+            btnOpenExports.style.display = state.export.isDesktop ? 'inline-block' : 'none';
+        }
+    };
+
     if (fastClientToggle) {
-        fastClientToggle.checked = state.export.method === 'client';
+        fastClientToggle.checked = true;
         fastClientToggle.addEventListener('change', () => {
-            state.export.method = fastClientToggle.checked ? 'client' : 'server_exact';
+            fastClientToggle.checked = true;
+            state.export.method = 'client';
+            updateUIState();
         });
+    }
+
+    const initDesktopMode = () => {
+        state.export.isDesktop = true;
+        updateUIState();
+    };
+
+    if (window.pywebview) {
+        initDesktopMode();
+    } else {
+        window.addEventListener('pywebviewready', initDesktopMode);
     }
     const ffmpegPresetMenu = document.getElementById('ffmpeg-output-preset');
     if (ffmpegPresetMenu) {
@@ -90,6 +115,17 @@ document.addEventListener('DOMContentLoaded', () => {
             runSelectedExport(true);
         });
     }
+
+    const btnOpenExports = document.getElementById('btn-open-exports');
+    if (btnOpenExports) {
+        btnOpenExports.addEventListener('click', () => {
+            if (window.pywebview && window.pywebview.api) {
+                window.pywebview.api.open_file_in_explorer();
+            } else {
+                alert('Opening local folders is only supported in desktop app mode.');
+            }
+        });
+    }
 });
 
 // ─── Cooley-Tukey radix-2 FFT ────────────────────────────────────────────────
@@ -98,6 +134,10 @@ function runSelectedExport(previewMode = false) {
     const fastClientToggle = document.getElementById('fast-client-render-toggle');
     state.export.method = fastClientToggle && fastClientToggle.checked ? 'client' : 'server_exact';
     if (state.export.method === 'client') {
+        if (state.export.isDesktop && window.pywebview && window.pywebview.api) {
+            runDesktopNativeExport(previewMode);
+            return;
+        }
         runClientSideExport(previewMode);
         return;
     }
@@ -295,13 +335,26 @@ async function runExactServerExport(previewMode = false) {
                             elements.renderModal.style.display = 'none';
                         };
                         elements.btnDownloadExport.style.display = 'block';
+                        if (state.export.isDesktop) {
+                            elements.btnDownloadExport.innerText = 'Show in Folder';
+                        } else {
+                            elements.btnDownloadExport.innerText = 'Download Video';
+                        }
                         elements.btnDownloadExport.onclick = () => {
+                            if (state.export.isDesktop && window.pywebview && window.pywebview.api) {
+                                window.pywebview.api.open_file_in_explorer(taskFilename);
+                                elements.renderModal.style.display = 'none';
+                                return;
+                            }
                             const a = document.createElement('a');
                             a.href = s.url;
                             a.download = `${payload.export_name}.mp4`;
                             a.click();
                             elements.renderModal.style.display = 'none';
                         };
+                        if (state.export.isDesktop && window.pywebview && window.pywebview.api) {
+                            window.pywebview.api.open_file_in_explorer(taskFilename);
+                        }
                     } else if (s.status === 'failed') {
                         clearInterval(pollInterval);
                         elements.renderPercent.innerText = 'ERR';
@@ -625,7 +678,7 @@ async function runClientSideExport(previewMode = false) {
     stopAudio();
     if (wasSynthActive) stopSynthProgression();
     state.audio.isPlaying    = false;
-    state.export.isRecording = false;
+    state.export.isRecording = true;
     if (typeof animationId !== 'undefined' && animationId) {
         cancelAnimationFrame(animationId);
         animationId = null;
@@ -750,21 +803,18 @@ async function runClientSideExport(previewMode = false) {
                 output: (chunk, meta) => segMuxer.addVideoChunk(chunk, meta),
                 error:  e => { encoderError = e; }
             });
-            segEncoder.configure({
+            const encoderConfig = {
                 codec:       'vp09.00.41.08',
                 width:       videoWidth,
                 height:      videoHeight,
                 bitrate:     4_000_000,
                 framerate:   FPS,
-                // 'realtime' makes the encoder drain and release each frame promptly.
-                // 'quality' lets VP9 buffer frames internally for lookahead, which
-                // holds them renderer-side until flush() and makes tab memory climb
-                // into the multi-GB range on longer songs (never releasing until the
-                // export finishes). This VP9 stream is only a throwaway intermediate —
-                // FFmpeg re-encodes it to H.264/CRF 18 on the server — so there is no
-                // final-quality cost to using realtime here.
                 latencyMode: 'realtime'
-            });
+            };
+            if (state.export.preferSoftware) {
+                encoderConfig.hardwareAcceleration = 'prefer-software';
+            }
+            segEncoder.configure(encoderConfig);
 
             // ── Frame loop for this segment ───────────────────────────────
             for (let f = segFirstFrame; f < segLastFrame; f++) {
@@ -887,6 +937,8 @@ async function runClientSideExport(previewMode = false) {
             await waitForBrowserCleanup(25);
         }
 
+        state.export.isRecording = false;
+
         if (isCancelled) {
             releaseExportRenderMemory();
             elements.renderModal.style.display = 'none';
@@ -972,7 +1024,17 @@ async function runClientSideExport(previewMode = false) {
                             elements.renderModal.style.display = 'none';
                         };
                         elements.btnDownloadExport.style.display = 'block';
+                        if (state.export.isDesktop) {
+                            elements.btnDownloadExport.innerText = 'Show in Folder';
+                        } else {
+                            elements.btnDownloadExport.innerText = 'Download Video';
+                        }
                         elements.btnDownloadExport.onclick = () => {
+                            if (state.export.isDesktop && window.pywebview && window.pywebview.api) {
+                                window.pywebview.api.open_file_in_explorer(taskFilename);
+                                elements.renderModal.style.display = 'none';
+                                return;
+                            }
                             const a = document.createElement('a');
                             a.href     = s.url;
                             if (wasSynthActive) {
@@ -984,6 +1046,9 @@ async function runClientSideExport(previewMode = false) {
                             a.click();
                             elements.renderModal.style.display = 'none';
                         };
+                        if (state.export.isDesktop && window.pywebview && window.pywebview.api) {
+                            window.pywebview.api.open_file_in_explorer(taskFilename);
+                        }
                     } else if (s.status === 'failed') {
                         clearInterval(pollInterval);
                         elements.renderPercent.innerText               = 'ERR';
@@ -1040,12 +1105,279 @@ async function runClientSideExport(previewMode = false) {
         };
 
     } catch (e) {
+        state.export.isRecording = false;
         releaseExportRenderMemory();
         console.error('Export error:', e);
         alert('Export error: ' + e.message);
         elements.renderModal.style.display = 'none';
         state.audio.analyser = originalAnalyser;
         if (state.audio.context && state.audio.context.state === 'suspended') state.audio.context.resume();
+        if (exportBgVideo) exportBgVideo.play().catch(() => {});
+        if (exportFgVideo) exportFgVideo.play().catch(() => {});
+    }
+}
+
+async function runDesktopNativeExport(previewMode = false) {
+    // ── UI setup ────────────────────────────────────────────────────────────
+    elements.renderModal.style.display = 'flex';
+    elements.renderPercent.innerText   = '0%';
+    elements.renderProgressbar.style.width = '0%';
+    elements.renderModalTitle.innerText = 'Initializing Render';
+    elements.renderModalSub.innerText   = 'Preparing native FFmpeg pipeline...';
+    elements.renderDetailsLog.innerText = 'Connecting...';
+    elements.btnCancelRender.style.display   = 'block';
+    elements.btnCancelRender.innerText       = 'Cancel Export';
+    elements.btnDownloadExport.style.display = 'none';
+    if (elements.btnCloseModal) elements.btnCloseModal.style.display = 'none';
+    const spinner = elements.renderModal.querySelector('.spinner-ring');
+    if (spinner) spinner.classList.remove('stopped');
+
+    // ── Audio ────────────────────────────────────────────────────────────────
+    const wasSynthActive = state.audio.synthActive;
+    const melodyPreset   = elements.synthMelody ? elements.synthMelody.value : 'chill';
+
+    stopAudio();
+    if (wasSynthActive) stopSynthProgression();
+    state.audio.isPlaying    = false;
+    state.export.isRecording = true;
+    if (typeof animationId !== 'undefined' && animationId) {
+        cancelAnimationFrame(animationId);
+        animationId = null;
+    }
+
+    let exportBuffer = null;
+    let wavBlob      = null;
+    const fullDuration = wasSynthActive ? 15.0 : state.audio.duration;
+    const duration     = previewMode ? Math.min(15.0, fullDuration) : fullDuration;
+
+    if (wasSynthActive) {
+        elements.renderModalTitle.innerText = 'Synthesizing Audio...';
+        elements.renderModalSub.innerText   = 'Pre-rendering beats into WAV for muxing...';
+        try {
+            exportBuffer = await preRenderSynth(duration, melodyPreset);
+            wavBlob      = audioBufferToWav(exportBuffer);
+        } catch (e) {
+            alert('Synthesizer pre-render failed: ' + e.message);
+            elements.renderModal.style.display = 'none';
+            state.export.isRecording = false;
+            return;
+        }
+    } else {
+        exportBuffer = state.audio.buffer;
+    }
+
+    if (!exportBuffer) {
+        alert('Audio buffer is missing. Please upload a track.');
+        elements.renderModal.style.display = 'none';
+        state.export.isRecording = false;
+        return;
+    }
+
+    // ── Get resolution ───────────────────────────────────────────────────────
+    const resValue = parseInt(document.getElementById('desktop-resolution-select')?.value || '2160');
+    const isVertical = state.visuals.aspectRatio !== '16:9';
+    let videoWidth, videoHeight;
+    if (isVertical) {
+        videoHeight = resValue === 2160 ? 3840 : (resValue === 1440 ? 2560 : 1920);
+        videoWidth  = resValue === 2160 ? 2160 : (resValue === 1440 ? 1440 : 1080);
+    } else {
+        videoWidth  = resValue === 2160 ? 3840 : (resValue === 1440 ? 2560 : 1920);
+        videoHeight = resValue === 2160 ? 2160 : (resValue === 1440 ? 1440 : 1080);
+    }
+
+    const canvas = elements.visualizerCanvas;
+    const originalWidth = canvas.width;
+    const originalHeight = canvas.height;
+
+    // ── Analyser mock ────────────────────────────────────────────────────────
+    let prevSmoothed      = new Uint8Array(256);
+    let currentTimeDomain = new Uint8Array(512).fill(128);
+    const originalAnalyser = state.audio.analyser;
+    state.audio.analyser = {
+        frequencyBinCount: 256,
+        fftSize: 512,
+        getByteFrequencyData(array) {
+            for (let i = 0; i < Math.min(array.length, prevSmoothed.length); i++)
+                array[i] = prevSmoothed[i];
+        },
+        getByteTimeDomainData(array) {
+            for (let i = 0; i < Math.min(array.length, currentTimeDomain.length); i++)
+                array[i] = currentTimeDomain[i];
+        }
+    };
+
+    // Suspend AudioContext so no live audio bleeds through during render
+    if (state.audio.context && state.audio.context.state === 'running') {
+        await state.audio.context.suspend();
+    }
+
+    // Pause video backgrounds so we can seek them frame-accurately
+    const exportBgVideo = state.visuals.bgVideo;
+    const exportFgVideo = state.visuals.fgVideo;
+    if (exportBgVideo) { exportBgVideo.pause(); exportBgVideo.currentTime = 0; }
+    if (exportFgVideo) { exportFgVideo.pause(); exportFgVideo.currentTime = 0; }
+
+    const FPS = 30;
+    const totalFrames = Math.ceil(duration * FPS);
+    let isCancelled = false;
+    elements.btnCancelRender.onclick = async () => {
+        isCancelled = true;
+        await window.pywebview.api.cancel_desktop_export();
+    };
+
+    try {
+        let audioFilename = null;
+        if (wasSynthActive) {
+            // Upload the WAV blob so the python backend can access it locally
+            const form = new FormData();
+            form.append('file', wavBlob, 'synth.wav');
+            form.append('type', 'audio');
+            const uploadRes = await fetch('/api/upload', { method: 'POST', body: form });
+            if (!uploadRes.ok) throw new Error('Failed to upload synthesized audio to local server');
+            const uploadData = await uploadRes.json();
+            audioFilename = uploadData.filename;
+        } else {
+            audioFilename = state.audio.audioUrl.split('/uploads/')[1];
+        }
+
+        const presetObj = getFFmpegOutputPreset();
+        let suffix = previewMode ? '_preview' : '_viz';
+        let baseName = (state.audio.fileName || 'visualizer');
+        const dot = baseName.lastIndexOf('.');
+        if (dot > 0) baseName = baseName.substring(0, dot);
+        const exportName = (wasSynthActive ? 'synthetic_dream' : baseName) + suffix;
+
+        // Resize Canvas to high-res target for rendering
+        resizeCanvas(videoWidth, videoHeight);
+
+        const startRes = await window.pywebview.api.start_desktop_export({
+            width: videoWidth,
+            height: videoHeight,
+            fps: FPS,
+            export_name: exportName,
+            audio_filename: audioFilename,
+            preset: presetObj.ffmpeg_preset,
+            crf: presetObj.ffmpeg_crf,
+            audio_bitrate: presetObj.ffmpeg_audio_bitrate
+        });
+
+        if (startRes.status === 'error') {
+            throw new Error(startRes.error);
+        }
+
+        // ── Frame Loop ───────────────────────────────────────────────────────
+        const renderStartMs = performance.now();
+        for (let f = 0; f < totalFrames; f++) {
+            if (isCancelled) break;
+
+            const time = f / FPS;
+            state.audio.currentTime = time;
+            prevSmoothed      = extractFFTBins(exportBuffer, time, prevSmoothed, state.visuals.smoothing);
+            currentTimeDomain = extractTimeDomainBins(exportBuffer, time);
+            if (exportBgVideo) await syncVideoToTime(exportBgVideo, time);
+            if (exportFgVideo) await syncVideoToTime(exportFgVideo, time);
+            
+            renderFrame();
+
+            // Extract frame as high-quality JPEG base64 (fast and efficient transfer size)
+            const base64Data = canvas.toDataURL('image/jpeg', 0.96);
+
+            const writeRes = await window.pywebview.api.write_desktop_frame(base64Data);
+            if (writeRes.status === 'error') {
+                throw new Error(writeRes.error);
+            }
+
+            // Update progress UI
+            const pct = Math.floor(((f + 1) / totalFrames) * 100);
+            elements.renderPercent.innerText       = `${pct}%`;
+            elements.renderProgressbar.style.width = `${pct}%`;
+            elements.renderModalTitle.innerText = `Exporting: Frame ${f + 1} / ${totalFrames}`;
+
+            // Calculate elapsed time and ETA
+            const elapsedSec = (performance.now() - renderStartMs) / 1000;
+            let etaText = 'Calculating...';
+            if (f > 5) {
+                const etaSec = Math.round((totalFrames - (f + 1)) / ((f + 1) / elapsedSec));
+                const mins = Math.floor(etaSec / 60);
+                const secs = etaSec % 60;
+                etaText = mins > 0 ? `${mins}m ${secs}s` : `${secs}s`;
+            }
+            elements.renderModalSub.innerText   = `Time: ${(f / FPS).toFixed(1)}s / ${duration.toFixed(1)}s · ETA: ${etaText}`;
+            elements.renderDetailsLog.innerText = `Resolution: ${videoWidth}x${videoHeight}`;
+
+            await yieldToEventLoop();
+        }
+
+        if (isCancelled) {
+            throw new Error('Export cancelled by user.');
+        }
+
+        elements.renderModalTitle.innerText = 'Muxing audio & video...';
+        elements.renderModalSub.innerText   = 'Finalizing MP4 file...';
+        elements.renderDetailsLog.innerText = 'Writing output track';
+
+        const finalizeRes = await window.pywebview.api.finalize_desktop_export();
+        if (finalizeRes.status === 'completed') {
+            elements.renderPercent.innerText       = '100%';
+            elements.renderProgressbar.style.width = '100%';
+            elements.renderModalTitle.innerText = 'Export Complete!';
+            elements.renderModalSub.innerText   = 'Your native video is ready.';
+            elements.renderDetailsLog.innerText = 'Saved directly to exports folder!';
+            if (spinner) spinner.classList.add('stopped');
+            
+            if (elements.btnCloseModal) {
+                elements.btnCloseModal.style.display = 'block';
+                elements.btnCloseModal.onclick = () => {
+                    elements.renderModal.style.display = 'none';
+                };
+            }
+            elements.btnCancelRender.innerText  = 'Close';
+            elements.btnCancelRender.onclick    = () => {
+                elements.renderModal.style.display = 'none';
+            };
+            elements.btnDownloadExport.style.display = 'block';
+            if (state.export.isDesktop) {
+                elements.btnDownloadExport.innerText = 'Show in Folder';
+            } else {
+                elements.btnDownloadExport.innerText = 'Download Video';
+            }
+            elements.btnDownloadExport.onclick = () => {
+                if (state.export.isDesktop && window.pywebview && window.pywebview.api) {
+                    window.pywebview.api.open_file_in_explorer(exportName + '.mp4');
+                    elements.renderModal.style.display = 'none';
+                    return;
+                }
+                const a = document.createElement('a');
+                a.href     = startRes.file_url;
+                a.download = exportName + '.mp4';
+                a.click();
+                elements.renderModal.style.display = 'none';
+            };
+            if (state.export.isDesktop && window.pywebview && window.pywebview.api) {
+                window.pywebview.api.open_file_in_explorer(exportName + '.mp4');
+            }
+        } else {
+            throw new Error(finalizeRes.error || 'FFmpeg failed to finalize video');
+        }
+
+    } catch (e) {
+        console.error('Desktop Export error:', e);
+        if (!isCancelled) {
+            alert('Desktop Export error: ' + e.message);
+        }
+        elements.renderModal.style.display = 'none';
+    } finally {
+        // Restore canvas size
+        canvas.width = originalWidth;
+        canvas.height = originalHeight;
+        resizeCanvas();
+
+        state.export.isRecording = false;
+        releaseExportRenderMemory();
+        state.audio.analyser = originalAnalyser;
+        if (state.audio.context && state.audio.context.state === 'suspended') {
+            await state.audio.context.resume();
+        }
         if (exportBgVideo) exportBgVideo.play().catch(() => {});
         if (exportFgVideo) exportFgVideo.play().catch(() => {});
     }

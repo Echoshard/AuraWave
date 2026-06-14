@@ -383,6 +383,34 @@ function strokeWithHDRBloom(ctx, glowColor, baseStrokeStyle, baseLineWidth, isSh
 
     ctx.save();
 
+    if (state.export.isRecording && state.export.optimizeGlows) {
+        ctx.globalCompositeOperation = 'lighter';
+        ctx.strokeStyle = baseStrokeStyle;
+        ctx.lineWidth   = baseLineWidth;
+
+        // Wide soft glow
+        ctx.shadowColor = hexToRgba(glowColor, opacity * 0.3 * dynIntensity * strength);
+        ctx.shadowBlur  = Math.min(MAX_BLUR, dynSpread * 2.2);
+        ctx.stroke();
+
+        // Narrow bright core
+        ctx.shadowColor = hexToRgba(glowColor, opacity * 0.75 * dynIntensity * strength);
+        ctx.shadowBlur  = Math.min(MAX_BLUR, dynSpread * 0.6);
+        ctx.stroke();
+
+        // White-hot core
+        ctx.shadowBlur  = 0;
+        ctx.shadowColor = 'transparent';
+        const coreOpacity = Math.min(1.0, 0.45 + (dynIntensity * strength - 1.0) * 0.32);
+        const coreWidth   = Math.max(1.5, baseLineWidth * Math.max(0.3, 0.35 * (1.0 + (intensity - 1.0) * 0.55)));
+        ctx.strokeStyle = `rgba(255,255,255,${coreOpacity})`;
+        ctx.lineWidth   = coreWidth;
+        ctx.stroke();
+
+        ctx.restore();
+        return;
+    }
+
     // 'lighter' = true additive RGB — values accumulate and clip to white at high intensity
     ctx.globalCompositeOperation = 'lighter';
     ctx.strokeStyle = baseStrokeStyle;
@@ -471,6 +499,32 @@ function fillWithHDRBloom(ctx, glowColor, baseFillStyle, isShape = false, fastMo
     const MAX_BLUR = 80;
 
     ctx.save();
+
+    if (state.export.isRecording && state.export.optimizeGlows) {
+        if (!noComposite) ctx.globalCompositeOperation = 'lighter';
+        ctx.fillStyle = baseFillStyle;
+
+        // Wide soft glow
+        ctx.shadowColor = hexToRgba(glowColor, opacity * 0.3 * dynIntensity * strength);
+        ctx.shadowBlur  = Math.min(MAX_BLUR, dynSpread * 2.2);
+        ctx.fill();
+
+        // Narrow bright core
+        ctx.shadowColor = hexToRgba(glowColor, opacity * 0.75 * dynIntensity * strength);
+        ctx.shadowBlur  = Math.min(MAX_BLUR, dynSpread * 0.6);
+        ctx.fill();
+
+        // White-hot core
+        ctx.shadowBlur  = 0;
+        ctx.shadowColor = 'transparent';
+        const coreOpacity = Math.min(1.0, 0.45 + (dynIntensity * strength - 1.0) * 0.32);
+        ctx.fillStyle = `rgba(255,255,255,${coreOpacity})`;
+        ctx.fill();
+
+        ctx.restore();
+        return;
+    }
+
     if (!noComposite) ctx.globalCompositeOperation = 'lighter';
     ctx.fillStyle = baseFillStyle;
 
@@ -590,14 +644,19 @@ function setupParticles() {
 }
 
 // Adjust canvas resolution dynamically on window changes
-function resizeCanvas() {
+function resizeCanvas(customWidth = null, customHeight = null) {
     const canvas = elements.visualizerCanvas;
-    if (state.visuals.aspectRatio === '16:9') {
-        canvas.width = 1920;
-        canvas.height = 1080;
+    if (customWidth !== null && customHeight !== null) {
+        canvas.width = customWidth;
+        canvas.height = customHeight;
     } else {
-        canvas.width = 1080;
-        canvas.height = 1920;
+        if (state.visuals.aspectRatio === '16:9') {
+            canvas.width = 1920;
+            canvas.height = 1080;
+        } else {
+            canvas.width = 1080;
+            canvas.height = 1920;
+        }
     }
     
     if (state.text.position === 'center') {
@@ -959,12 +1018,20 @@ function renderFrame() {
                 // Use ctx.filter drop-shadow so glow colour is applied correctly and
                 // the image body is NOT drawn in 'lighter' mode (which washes it white).
                 // Each pass is saved/restored so alpha and filter don't bleed through.
-                const passes = [
-                    { blurPx: Math.min(40, dynSpread * 2.5), shadowPx: Math.min(40, dynSpread * 2.5), alpha: opacity * 0.12 * dynIntensity * strength },
-                    { blurPx: Math.min(30, dynSpread * 1.4), shadowPx: Math.min(35, dynSpread * 1.8), alpha: Math.min(1, opacity * 0.28 * dynIntensity * strength) },
-                    { blurPx: Math.min(12, dynSpread * 0.5), shadowPx: Math.min(25, dynSpread * 1.0), alpha: Math.min(1, opacity * 0.55 * dynIntensity * strength) },
-                    { blurPx: 0,                             shadowPx: Math.min(15, dynSpread * 0.4), alpha: Math.min(1, opacity * 0.85 * dynIntensity * strength) },
-                ];
+                let passes;
+                if (state.export.isRecording && state.export.optimizeGlows) {
+                    passes = [
+                        { blurPx: Math.min(40, dynSpread * 1.8), shadowPx: Math.min(40, dynSpread * 1.8), alpha: opacity * 0.35 * dynIntensity * strength },
+                        { blurPx: 0,                             shadowPx: Math.min(15, dynSpread * 0.5), alpha: Math.min(1, opacity * 0.85 * dynIntensity * strength) },
+                    ];
+                } else {
+                    passes = [
+                        { blurPx: Math.min(40, dynSpread * 2.5), shadowPx: Math.min(40, dynSpread * 2.5), alpha: opacity * 0.12 * dynIntensity * strength },
+                        { blurPx: Math.min(30, dynSpread * 1.4), shadowPx: Math.min(35, dynSpread * 1.8), alpha: Math.min(1, opacity * 0.28 * dynIntensity * strength) },
+                        { blurPx: Math.min(12, dynSpread * 0.5), shadowPx: Math.min(25, dynSpread * 1.0), alpha: Math.min(1, opacity * 0.55 * dynIntensity * strength) },
+                        { blurPx: 0,                             shadowPx: Math.min(15, dynSpread * 0.4), alpha: Math.min(1, opacity * 0.85 * dynIntensity * strength) },
+                    ];
+                }
 
                 passes.forEach(({ blurPx, shadowPx, alpha }) => {
                     ctx.save();
@@ -999,8 +1066,18 @@ function renderFrame() {
 
     // --- 3. Draw Ambient Particles FX ---
     if (state.fx.particles && state.visuals.particles.length) {
+        const speedMultiplier = 1.0 + Math.min(2.5, Math.max(0, pulseScale - 1.0) * 50);
+        
+        // Arrays for batching circle drawing
+        const glowingCircles = [];
+        const nonGlowingCircles = [];
+        
+        // Pre-calculate glow parameters
+        const glowEnabled = state.visuals.glowEnabled && pulseScale > 1.01;
+        const mainGlowColor = getGlowColor(state.visuals.color);
+        const mainShadowBlur = Math.min(80, 15 * (state.visuals.glowStrength !== undefined ? state.visuals.glowStrength : 1.0));
+
         state.visuals.particles.forEach(p => {
-            const speedMultiplier = 1.0 + Math.min(2.5, Math.max(0, pulseScale - 1.0) * 50);
             p.y += p.speedY * speedMultiplier;
 
             if (p.swayAmp) {
@@ -1020,10 +1097,10 @@ function renderFrame() {
             }
             if (p.x < 0 || p.x > width) p.speedX = -p.speedX;
 
-            ctx.fillStyle = p.color;
             if (p.shape === 'pixel') {
+                ctx.fillStyle = p.color;
                 const s = Math.max(2, Math.ceil(p.size));
-                if (p.glow && pulseScale > 1.01 && state.visuals.glowEnabled) {
+                if (p.glow && glowEnabled) {
                     ctx.shadowColor = p.color;
                     ctx.shadowBlur = s * 3;
                 } else {
@@ -1032,15 +1109,16 @@ function renderFrame() {
                 }
                 ctx.fillRect(p.x, p.y, s, s);
             } else if (p.shape === 'ascii') {
-                const asciiChars = '0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ@#$%&*<>?/\\|[]{}';
+                ctx.fillStyle = p.color;
                 p.charTimer++;
                 if (p.charTimer >= p.charInterval) {
+                    const asciiChars = '0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ@#$%&*<>?/\\|[]{}';
                     p.char = asciiChars[Math.floor(Math.random() * asciiChars.length)];
                     p.charTimer = 0;
                 }
                 const fontSize = Math.max(12, Math.ceil(p.size));
                 ctx.font = `bold ${fontSize}px monospace`;
-                if (p.glow && pulseScale > 1.01 && state.visuals.glowEnabled) {
+                if (p.glow && glowEnabled) {
                     ctx.shadowColor = p.color;
                     ctx.shadowBlur = fontSize * 1.5;
                 } else {
@@ -1055,19 +1133,45 @@ function renderFrame() {
                     p.flickerPhase += 0.35;
                     drawSize = p.size * (0.7 + Math.abs(Math.sin(p.flickerPhase)) * 0.6);
                 }
-                ctx.beginPath();
-                if (p.glow && pulseScale > 1.01 && state.visuals.glowEnabled) {
-                    ctx.shadowColor = getGlowColor(state.visuals.color);
-                    ctx.shadowBlur = Math.min(80, 15 * (state.visuals.glowStrength !== undefined ? state.visuals.glowStrength : 1.0));
-                    ctx.arc(p.x, p.y, drawSize * 1.8, 0, Math.PI * 2);
+                
+                if (p.glow && glowEnabled) {
+                    glowingCircles.push({ x: p.x, y: p.y, r: drawSize * 1.8, color: p.color });
                 } else {
-                    ctx.shadowColor = 'transparent';
-                    ctx.shadowBlur = 0;
-                    ctx.arc(p.x, p.y, drawSize, 0, Math.PI * 2);
+                    nonGlowingCircles.push({ x: p.x, y: p.y, r: drawSize, color: p.color });
                 }
-                ctx.fill();
             }
         });
+
+        // Batch draw non-glowing circles
+        if (nonGlowingCircles.length > 0) {
+            ctx.save();
+            ctx.shadowColor = 'transparent';
+            ctx.shadowBlur = 0;
+            ctx.fillStyle = nonGlowingCircles[0].color;
+            ctx.beginPath();
+            nonGlowingCircles.forEach(c => {
+                ctx.moveTo(c.x + c.r, c.y);
+                ctx.arc(c.x, c.y, c.r, 0, Math.PI * 2);
+            });
+            ctx.fill();
+            ctx.restore();
+        }
+
+        // Batch draw glowing circles
+        if (glowingCircles.length > 0) {
+            ctx.save();
+            ctx.shadowColor = mainGlowColor;
+            ctx.shadowBlur = mainShadowBlur;
+            ctx.fillStyle = glowingCircles[0].color;
+            ctx.beginPath();
+            glowingCircles.forEach(c => {
+                ctx.moveTo(c.x + c.r, c.y);
+                ctx.arc(c.x, c.y, c.r, 0, Math.PI * 2);
+            });
+            ctx.fill();
+            ctx.restore();
+        }
+
         ctx.shadowColor = 'transparent';
         ctx.shadowBlur = 0;
     }
@@ -1737,28 +1841,41 @@ function renderFrame() {
                 ctx.shadowOffsetY = 0;
 
                 const MAX_TEXT_BLUR = 80;
-                ctx.fillStyle = state.text.color;
-                ctx.shadowColor = hexToRgba(glowColor, opacity * 0.06 * intensity);
-                ctx.shadowBlur = Math.min(MAX_TEXT_BLUR, baseSpread * 5.5);
-                ctx.fillText(state.text.title, textX, textY);
-
-                ctx.shadowColor = hexToRgba(glowColor, Math.min(1.0, opacity * 0.16 * intensity));
-                ctx.shadowBlur = Math.min(MAX_TEXT_BLUR, baseSpread * 2.6);
-                ctx.fillText(state.text.title, textX, textY);
-
-                ctx.shadowColor = hexToRgba(glowColor, Math.min(1.0, opacity * 0.46 * intensity));
-                ctx.shadowBlur = Math.min(MAX_TEXT_BLUR, baseSpread * 1.1);
-                ctx.fillText(state.text.title, textX, textY);
-
-                ctx.shadowColor = hexToRgba(glowColor, Math.min(1.0, opacity * intensity));
-                ctx.shadowBlur = Math.min(MAX_TEXT_BLUR, baseSpread * 0.35);
-                ctx.fillText(state.text.title, textX, textY);
-
-                const extraPasses = Math.max(0, Math.min(3, Math.ceil(intensity) - 1));
-                for (let s = 0; s < extraPasses; s++) {
-                    ctx.shadowColor = hexToRgba(glowColor, Math.min(1.0, opacity * 0.7));
-                    ctx.shadowBlur = Math.min(MAX_TEXT_BLUR, baseSpread * (0.28 + s * 0.14));
+                if (state.export.isRecording && state.export.optimizeGlows) {
+                    ctx.fillStyle = state.text.color;
+                    // Wide soft glow
+                    ctx.shadowColor = hexToRgba(glowColor, opacity * 0.3 * intensity);
+                    ctx.shadowBlur = Math.min(MAX_TEXT_BLUR, baseSpread * 2.2);
                     ctx.fillText(state.text.title, textX, textY);
+
+                    // Narrow bright core
+                    ctx.shadowColor = hexToRgba(glowColor, opacity * 0.75 * intensity);
+                    ctx.shadowBlur = Math.min(MAX_TEXT_BLUR, baseSpread * 0.6);
+                    ctx.fillText(state.text.title, textX, textY);
+                } else {
+                    ctx.fillStyle = state.text.color;
+                    ctx.shadowColor = hexToRgba(glowColor, opacity * 0.06 * intensity);
+                    ctx.shadowBlur = Math.min(MAX_TEXT_BLUR, baseSpread * 5.5);
+                    ctx.fillText(state.text.title, textX, textY);
+
+                    ctx.shadowColor = hexToRgba(glowColor, Math.min(1.0, opacity * 0.16 * intensity));
+                    ctx.shadowBlur = Math.min(MAX_TEXT_BLUR, baseSpread * 2.6);
+                    ctx.fillText(state.text.title, textX, textY);
+
+                    ctx.shadowColor = hexToRgba(glowColor, Math.min(1.0, opacity * 0.46 * intensity));
+                    ctx.shadowBlur = Math.min(MAX_TEXT_BLUR, baseSpread * 1.1);
+                    ctx.fillText(state.text.title, textX, textY);
+
+                    ctx.shadowColor = hexToRgba(glowColor, Math.min(1.0, opacity * intensity));
+                    ctx.shadowBlur = Math.min(MAX_TEXT_BLUR, baseSpread * 0.35);
+                    ctx.fillText(state.text.title, textX, textY);
+
+                    const extraPasses = Math.max(0, Math.min(3, Math.ceil(intensity) - 1));
+                    for (let s = 0; s < extraPasses; s++) {
+                        ctx.shadowColor = hexToRgba(glowColor, Math.min(1.0, opacity * 0.7));
+                        ctx.shadowBlur = Math.min(MAX_TEXT_BLUR, baseSpread * (0.28 + s * 0.14));
+                        ctx.fillText(state.text.title, textX, textY);
+                    }
                 }
 
                 // White-hot core (additive)
@@ -1797,28 +1914,41 @@ function renderFrame() {
                     ctx.shadowOffsetY = 0;
 
                     const MAX_ARTIST_BLUR = 80;
-                    ctx.fillStyle = artistColor;
-                    ctx.shadowColor = hexToRgba(glowColor, opacity * 0.06 * intensity);
-                    ctx.shadowBlur = Math.min(MAX_ARTIST_BLUR, baseSpread * 5.5);
-                    ctx.fillText(state.text.artist, textX, artistY);
-
-                    ctx.shadowColor = hexToRgba(glowColor, Math.min(1.0, opacity * 0.16 * intensity));
-                    ctx.shadowBlur = Math.min(MAX_ARTIST_BLUR, baseSpread * 2.6);
-                    ctx.fillText(state.text.artist, textX, artistY);
-
-                    ctx.shadowColor = hexToRgba(glowColor, Math.min(1.0, opacity * 0.46 * intensity));
-                    ctx.shadowBlur = Math.min(MAX_ARTIST_BLUR, baseSpread * 1.1);
-                    ctx.fillText(state.text.artist, textX, artistY);
-
-                    ctx.shadowColor = hexToRgba(glowColor, Math.min(1.0, opacity * intensity));
-                    ctx.shadowBlur = Math.min(MAX_ARTIST_BLUR, baseSpread * 0.35);
-                    ctx.fillText(state.text.artist, textX, artistY);
-
-                    const extraPasses = Math.max(0, Math.min(3, Math.ceil(intensity) - 1));
-                    for (let s = 0; s < extraPasses; s++) {
-                        ctx.shadowColor = hexToRgba(glowColor, Math.min(1.0, opacity * 0.7));
-                        ctx.shadowBlur = Math.min(MAX_ARTIST_BLUR, baseSpread * (0.28 + s * 0.14));
+                    if (state.export.isRecording && state.export.optimizeGlows) {
+                        ctx.fillStyle = artistColor;
+                        // Wide soft glow
+                        ctx.shadowColor = hexToRgba(glowColor, opacity * 0.3 * intensity);
+                        ctx.shadowBlur = Math.min(MAX_ARTIST_BLUR, baseSpread * 2.2);
                         ctx.fillText(state.text.artist, textX, artistY);
+
+                        // Narrow bright core
+                        ctx.shadowColor = hexToRgba(glowColor, opacity * 0.75 * intensity);
+                        ctx.shadowBlur = Math.min(MAX_ARTIST_BLUR, baseSpread * 0.6);
+                        ctx.fillText(state.text.artist, textX, artistY);
+                    } else {
+                        ctx.fillStyle = artistColor;
+                        ctx.shadowColor = hexToRgba(glowColor, opacity * 0.06 * intensity);
+                        ctx.shadowBlur = Math.min(MAX_ARTIST_BLUR, baseSpread * 5.5);
+                        ctx.fillText(state.text.artist, textX, artistY);
+
+                        ctx.shadowColor = hexToRgba(glowColor, Math.min(1.0, opacity * 0.16 * intensity));
+                        ctx.shadowBlur = Math.min(MAX_ARTIST_BLUR, baseSpread * 2.6);
+                        ctx.fillText(state.text.artist, textX, artistY);
+
+                        ctx.shadowColor = hexToRgba(glowColor, Math.min(1.0, opacity * 0.46 * intensity));
+                        ctx.shadowBlur = Math.min(MAX_ARTIST_BLUR, baseSpread * 1.1);
+                        ctx.fillText(state.text.artist, textX, artistY);
+
+                        ctx.shadowColor = hexToRgba(glowColor, Math.min(1.0, opacity * intensity));
+                        ctx.shadowBlur = Math.min(MAX_ARTIST_BLUR, baseSpread * 0.35);
+                        ctx.fillText(state.text.artist, textX, artistY);
+
+                        const extraPasses = Math.max(0, Math.min(3, Math.ceil(intensity) - 1));
+                        for (let s = 0; s < extraPasses; s++) {
+                            ctx.shadowColor = hexToRgba(glowColor, Math.min(1.0, opacity * 0.7));
+                            ctx.shadowBlur = Math.min(MAX_ARTIST_BLUR, baseSpread * (0.28 + s * 0.14));
+                            ctx.fillText(state.text.artist, textX, artistY);
+                        }
                     }
 
                     ctx.shadowColor = 'transparent';
