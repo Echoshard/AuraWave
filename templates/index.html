@@ -598,13 +598,10 @@
                                         <select id="shape-type" class="select-input">
                                             <option value="ring" selected>Neon Beat Ring (Halo Circle)</option>
                                             <option value="sphere">Neon Beat Sphere (Centered Orb)</option>
-                                            <option value="cube">Rotating Wireframe Cube (3D)</option>
-                                            <option value="hypercube">4D Rotating Tesseract (Hypercube)</option>
-                                            <option value="pyramid">Rotating Wireframe Pyramid (3D)</option>
+                                            <option value="rectangle">Rectangle (Adjustable W &times; H)</option>
                                             <option value="triangle">2D Triangle (Upward)</option>
                                             <option value="triangle_down">2D Triangle (Downward)</option>
                                             <option value="hexagon">2D Hexagon</option>
-                                            <option value="hexagon_prism">Rotating Hexagonal Prism (3D)</option>
                                             <option value="custom_image">Custom PNG Image</option>
                                         </select>
                                     </div>
@@ -633,7 +630,25 @@
                                         </div>
                                     </div>
 
-                                    <div class="setting-group" style="margin-bottom: 0.75rem;">
+                                    <div class="setting-group" id="rectangle-size-group" style="display: none; margin-bottom: 0.75rem;">
+                                        <label class="setting-label">Rectangle Dimensions</label>
+                                        <div style="margin-top: 0.5rem; margin-bottom: 0.75rem;">
+                                            <label class="setting-label-row">
+                                                <span>Width</span>
+                                                <span class="val-display" id="rect-width-val">400px</span>
+                                            </label>
+                                            <input type="range" id="rect-width" min="40" max="1800" step="10" value="400" class="slider-input">
+                                        </div>
+                                        <div>
+                                            <label class="setting-label-row">
+                                                <span>Height</span>
+                                                <span class="val-display" id="rect-height-val">250px</span>
+                                            </label>
+                                            <input type="range" id="rect-height" min="40" max="1800" step="10" value="250" class="slider-input">
+                                        </div>
+                                    </div>
+
+                                    <div class="setting-group" id="base-shape-size-group" style="margin-bottom: 0.75rem;">
                                         <label class="setting-label-row">
                                             <span>Base Shape Size</span>
                                             <span class="val-display" id="shape-size-val">320px</span>
@@ -929,6 +944,141 @@
                                         <input type="checkbox" id="fx-crt-flicker" checked>
                                         <span class="slider"></span>
                                     </label>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Digital Glitch -->
+                        <div class="fx-option-card">
+                            <div class="fx-header">
+                                <div class="fx-title">
+                                    <i class="fa-solid fa-bolt"></i>
+                                    <span>Digital Glitch</span>
+                                </div>
+                                <label class="toggle-switch">
+                                    <input type="checkbox" id="fx-glitch">
+                                    <span class="slider"></span>
+                                </label>
+                            </div>
+                            <p class="fx-desc">Datamosh-style RGB channel splitting with random horizontal slice tearing and signal corruption bursts.</p>
+                            <div class="fx-controls" id="glitch-controls">
+                                <div class="synth-control-row" style="margin-bottom: 0.75rem;">
+                                    <label class="setting-label-row" style="width: 100%;">
+                                        <span>Glitch Intensity</span>
+                                        <span class="val-display" id="glitch-intensity-val">1.0x</span>
+                                    </label>
+                                    <input type="range" id="fx-glitch-intensity" min="0.2" max="3.0" step="0.1" value="1.0" class="slider-input">
+                                </div>
+                                <div class="synth-control-row" style="margin-bottom: 0.75rem;">
+                                    <label class="setting-label-row" style="width: 100%;">
+                                        <span>Burst Frequency</span>
+                                        <span class="val-display" id="glitch-frequency-val">50%</span>
+                                    </label>
+                                    <input type="range" id="fx-glitch-frequency" min="0.0" max="1.0" step="0.05" value="0.5" class="slider-input">
+                                </div>
+                                <div class="synth-control-row" style="margin-bottom: 0.75rem;">
+                                    <label class="setting-label-row" style="width: 100%;">
+                                        <span>RGB Split Amount</span>
+                                        <span class="val-display" id="glitch-rgb-val">8px</span>
+                                    </label>
+                                    <input type="range" id="fx-glitch-rgb" min="0" max="30" step="1" value="8" class="slider-input">
+                                </div>
+                                <div class="synth-control-row">
+                                    <label class="setting-label-row" style="width: 100%;">
+                                        <span>Max Slice Tears</span>
+                                        <span class="val-display" id="glitch-slices-val">14</span>
+                                    </label>
+                                    <input type="range" id="fx-glitch-slices" min="2" max="30" step="1" value="14" class="slider-input">
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Heat Shimmer / Mirage -->
+                        <div class="fx-option-card">
+                            <div class="fx-header">
+                                <div class="fx-title">
+                                    <i class="fa-solid fa-fire"></i>
+                                    <span>Heat Shimmer Mirage</span>
+                                </div>
+                                <label class="toggle-switch">
+                                    <input type="checkbox" id="fx-heat">
+                                    <span class="slider"></span>
+                                </label>
+                            </div>
+                            <p class="fx-desc">Wavering atmospheric heat-haze distortion that ripples the image like a desert mirage rising off hot air.</p>
+                            <div class="fx-controls" id="heat-controls">
+                                <div class="synth-control-row" style="margin-bottom: 0.75rem;">
+                                    <label class="setting-label-row" style="width: 100%;">
+                                        <span>Shimmer Intensity</span>
+                                        <span class="val-display" id="heat-intensity-val">1.0x</span>
+                                    </label>
+                                    <input type="range" id="fx-heat-intensity" min="0.2" max="4.0" step="0.1" value="1.0" class="slider-input">
+                                </div>
+                                <div class="synth-control-row" style="margin-bottom: 0.75rem;">
+                                    <label class="setting-label-row" style="width: 100%;">
+                                        <span>Shimmer Speed</span>
+                                        <span class="val-display" id="heat-speed-val">1.0x</span>
+                                    </label>
+                                    <input type="range" id="fx-heat-speed" min="0.1" max="4.0" step="0.1" value="1.0" class="slider-input">
+                                </div>
+                                <div class="synth-control-row" style="margin-bottom: 0.75rem;">
+                                    <label class="setting-label-row" style="width: 100%;">
+                                        <span>Wave Density</span>
+                                        <span class="val-display" id="heat-scale-val">1.0x</span>
+                                    </label>
+                                    <input type="range" id="fx-heat-scale" min="0.3" max="3.0" step="0.1" value="1.0" class="slider-input">
+                                </div>
+                                <div class="synth-control-row">
+                                    <label class="setting-label-row" style="width: 100%;">
+                                        <span>Warm Heat Tint</span>
+                                        <span class="val-display" id="heat-tint-val">0%</span>
+                                    </label>
+                                    <input type="range" id="fx-heat-tint" min="0.0" max="1.0" step="0.05" value="0.0" class="slider-input">
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Retro VHS Tape -->
+                        <div class="fx-option-card">
+                            <div class="fx-header">
+                                <div class="fx-title">
+                                    <i class="fa-solid fa-video"></i>
+                                    <span>Retro VHS Tape (90's)</span>
+                                </div>
+                                <label class="toggle-switch">
+                                    <input type="checkbox" id="fx-vhs">
+                                    <span class="slider"></span>
+                                </label>
+                            </div>
+                            <p class="fx-desc">Authentic 90's VHS look with chroma bleed, wavy tape tracking, rolling tracking bands, and worn tape static.</p>
+                            <div class="fx-controls" id="vhs-controls">
+                                <div class="synth-control-row" style="margin-bottom: 0.75rem;">
+                                    <label class="setting-label-row" style="width: 100%;">
+                                        <span>Tape Tracking Jitter</span>
+                                        <span class="val-display" id="vhs-tracking-val">1.0x</span>
+                                    </label>
+                                    <input type="range" id="fx-vhs-tracking" min="0.0" max="3.0" step="0.1" value="1.0" class="slider-input">
+                                </div>
+                                <div class="synth-control-row" style="margin-bottom: 0.75rem;">
+                                    <label class="setting-label-row" style="width: 100%;">
+                                        <span>Chroma Color Bleed</span>
+                                        <span class="val-display" id="vhs-bleed-val">3px</span>
+                                    </label>
+                                    <input type="range" id="fx-vhs-bleed" min="0" max="12" step="0.5" value="3" class="slider-input">
+                                </div>
+                                <div class="synth-control-row" style="margin-bottom: 0.75rem;">
+                                    <label class="setting-label-row" style="width: 100%;">
+                                        <span>Tape Static Noise</span>
+                                        <span class="val-display" id="vhs-noise-val">50%</span>
+                                    </label>
+                                    <input type="range" id="fx-vhs-noise" min="0.0" max="1.0" step="0.05" value="0.5" class="slider-input">
+                                </div>
+                                <div class="synth-control-row">
+                                    <label class="setting-label-row" style="width: 100%;">
+                                        <span>Tracking Roll Speed</span>
+                                        <span class="val-display" id="vhs-roll-val">1.0x</span>
+                                    </label>
+                                    <input type="range" id="fx-vhs-roll" min="0.0" max="4.0" step="0.1" value="1.0" class="slider-input">
                                 </div>
                             </div>
                         </div>

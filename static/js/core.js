@@ -50,6 +50,8 @@ const state = {
         customShapeImageUrl: null,
         customShapeDropShadow: false,
         shapeSize: 320,
+        rectWidth: 400,
+        rectHeight: 250,
         shapeScaleReactive: true,
         shapeGlowReactive: true,
         shapeGlowStrength: 1.0,
@@ -115,6 +117,21 @@ const state = {
         crtFlicker: true,
         crtRollSpeed: 0.0,
         crtGrain: 0.05,
+        glitch: false,
+        glitchIntensity: 1.0,
+        glitchFrequency: 0.5,
+        glitchRgb: 8,
+        glitchSlices: 14,
+        heat: false,
+        heatIntensity: 1.0,
+        heatSpeed: 1.0,
+        heatScale: 1.0,
+        heatTint: 0.0,
+        vhs: false,
+        vhsTracking: 1.0,
+        vhsBleed: 3,
+        vhsNoise: 0.5,
+        vhsRoll: 1.0,
         colorGrading: 'none',
         cameraDrift: false,
         cameraDriftSpeed: 1.0,
@@ -318,6 +335,12 @@ document.addEventListener('DOMContentLoaded', () => {
     elements.customShapeDropShadow = document.getElementById('custom-shape-drop-shadow');
     elements.shapeSize = document.getElementById('shape-size');
     elements.shapeSizeVal = document.getElementById('shape-size-val');
+    elements.baseShapeSizeGroup = document.getElementById('base-shape-size-group');
+    elements.rectangleSizeGroup = document.getElementById('rectangle-size-group');
+    elements.rectWidth = document.getElementById('rect-width');
+    elements.rectWidthVal = document.getElementById('rect-width-val');
+    elements.rectHeight = document.getElementById('rect-height');
+    elements.rectHeightVal = document.getElementById('rect-height-val');
     elements.shapeGlowStrength = document.getElementById('shape-glow-strength');
     elements.shapeGlowStrengthVal = document.getElementById('shape-glow-strength-val');
     elements.shapeGlowThreshold = document.getElementById('shape-glow-threshold');
@@ -336,6 +359,42 @@ document.addEventListener('DOMContentLoaded', () => {
     elements.fxCrtGrain = document.getElementById('fx-crt-grain');
     elements.crtGrainVal = document.getElementById('crt-grain-val');
     elements.crtControls = document.getElementById('crt-controls');
+
+    // Digital Glitch
+    elements.fxGlitch = document.getElementById('fx-glitch');
+    elements.glitchControls = document.getElementById('glitch-controls');
+    elements.fxGlitchIntensity = document.getElementById('fx-glitch-intensity');
+    elements.glitchIntensityVal = document.getElementById('glitch-intensity-val');
+    elements.fxGlitchFrequency = document.getElementById('fx-glitch-frequency');
+    elements.glitchFrequencyVal = document.getElementById('glitch-frequency-val');
+    elements.fxGlitchRgb = document.getElementById('fx-glitch-rgb');
+    elements.glitchRgbVal = document.getElementById('glitch-rgb-val');
+    elements.fxGlitchSlices = document.getElementById('fx-glitch-slices');
+    elements.glitchSlicesVal = document.getElementById('glitch-slices-val');
+
+    // Heat Shimmer
+    elements.fxHeat = document.getElementById('fx-heat');
+    elements.heatControls = document.getElementById('heat-controls');
+    elements.fxHeatIntensity = document.getElementById('fx-heat-intensity');
+    elements.heatIntensityVal = document.getElementById('heat-intensity-val');
+    elements.fxHeatSpeed = document.getElementById('fx-heat-speed');
+    elements.heatSpeedVal = document.getElementById('heat-speed-val');
+    elements.fxHeatScale = document.getElementById('fx-heat-scale');
+    elements.heatScaleVal = document.getElementById('heat-scale-val');
+    elements.fxHeatTint = document.getElementById('fx-heat-tint');
+    elements.heatTintVal = document.getElementById('heat-tint-val');
+
+    // Retro VHS
+    elements.fxVhs = document.getElementById('fx-vhs');
+    elements.vhsControls = document.getElementById('vhs-controls');
+    elements.fxVhsTracking = document.getElementById('fx-vhs-tracking');
+    elements.vhsTrackingVal = document.getElementById('vhs-tracking-val');
+    elements.fxVhsBleed = document.getElementById('fx-vhs-bleed');
+    elements.vhsBleedVal = document.getElementById('vhs-bleed-val');
+    elements.fxVhsNoise = document.getElementById('fx-vhs-noise');
+    elements.vhsNoiseVal = document.getElementById('vhs-noise-val');
+    elements.fxVhsRoll = document.getElementById('fx-vhs-roll');
+    elements.vhsRollVal = document.getElementById('vhs-roll-val');
     
     elements.fxColorGrading = document.getElementById('fx-color-grading');
     elements.fxCameraDrift = document.getElementById('fx-camera-drift');
@@ -862,6 +921,7 @@ document.addEventListener('DOMContentLoaded', () => {
         if (elements.customShapeUploadGroup) {
             elements.customShapeUploadGroup.style.display = e.target.value === 'custom_image' ? 'block' : 'none';
         }
+        updateShapeSizeVisibility(e.target.value);
         triggerRedraw();
     });
 
@@ -871,6 +931,23 @@ document.addEventListener('DOMContentLoaded', () => {
         elements.shapeSizeVal.innerText = `${val}px`;
         triggerRedraw();
     });
+
+    if (elements.rectWidth) {
+        elements.rectWidth.addEventListener('input', (e) => {
+            const val = parseInt(e.target.value);
+            state.visuals.rectWidth = val;
+            elements.rectWidthVal.innerText = `${val}px`;
+            triggerRedraw();
+        });
+    }
+    if (elements.rectHeight) {
+        elements.rectHeight.addEventListener('input', (e) => {
+            const val = parseInt(e.target.value);
+            state.visuals.rectHeight = val;
+            elements.rectHeightVal.innerText = `${val}px`;
+            triggerRedraw();
+        });
+    }
 
     elements.shapeGlowThreshold.addEventListener('input', (e) => {
         const val = parseFloat(e.target.value);
@@ -1155,6 +1232,129 @@ document.addEventListener('DOMContentLoaded', () => {
     if (elements.fxCrtFlicker) {
         elements.fxCrtFlicker.addEventListener('change', (e) => {
             state.fx.crtFlicker = e.target.checked;
+            triggerRedraw();
+        });
+    }
+
+    // Digital Glitch listeners
+    if (elements.fxGlitch) {
+        elements.fxGlitch.addEventListener('change', (e) => {
+            state.fx.glitch = e.target.checked;
+            elements.glitchControls.classList.toggle('open', e.target.checked);
+            triggerRedraw();
+        });
+    }
+    if (elements.fxGlitchIntensity) {
+        elements.fxGlitchIntensity.addEventListener('input', (e) => {
+            const val = parseFloat(e.target.value);
+            state.fx.glitchIntensity = val;
+            elements.glitchIntensityVal.innerText = `${val.toFixed(1)}x`;
+            triggerRedraw();
+        });
+    }
+    if (elements.fxGlitchFrequency) {
+        elements.fxGlitchFrequency.addEventListener('input', (e) => {
+            const val = parseFloat(e.target.value);
+            state.fx.glitchFrequency = val;
+            elements.glitchFrequencyVal.innerText = `${Math.round(val * 100)}%`;
+            triggerRedraw();
+        });
+    }
+    if (elements.fxGlitchRgb) {
+        elements.fxGlitchRgb.addEventListener('input', (e) => {
+            const val = parseFloat(e.target.value);
+            state.fx.glitchRgb = val;
+            elements.glitchRgbVal.innerText = `${val}px`;
+            triggerRedraw();
+        });
+    }
+    if (elements.fxGlitchSlices) {
+        elements.fxGlitchSlices.addEventListener('input', (e) => {
+            const val = parseInt(e.target.value, 10);
+            state.fx.glitchSlices = val;
+            elements.glitchSlicesVal.innerText = `${val}`;
+            triggerRedraw();
+        });
+    }
+
+    // Heat Shimmer listeners
+    if (elements.fxHeat) {
+        elements.fxHeat.addEventListener('change', (e) => {
+            state.fx.heat = e.target.checked;
+            elements.heatControls.classList.toggle('open', e.target.checked);
+            triggerRedraw();
+        });
+    }
+    if (elements.fxHeatIntensity) {
+        elements.fxHeatIntensity.addEventListener('input', (e) => {
+            const val = parseFloat(e.target.value);
+            state.fx.heatIntensity = val;
+            elements.heatIntensityVal.innerText = `${val.toFixed(1)}x`;
+            triggerRedraw();
+        });
+    }
+    if (elements.fxHeatSpeed) {
+        elements.fxHeatSpeed.addEventListener('input', (e) => {
+            const val = parseFloat(e.target.value);
+            state.fx.heatSpeed = val;
+            elements.heatSpeedVal.innerText = `${val.toFixed(1)}x`;
+            triggerRedraw();
+        });
+    }
+    if (elements.fxHeatScale) {
+        elements.fxHeatScale.addEventListener('input', (e) => {
+            const val = parseFloat(e.target.value);
+            state.fx.heatScale = val;
+            elements.heatScaleVal.innerText = `${val.toFixed(1)}x`;
+            triggerRedraw();
+        });
+    }
+    if (elements.fxHeatTint) {
+        elements.fxHeatTint.addEventListener('input', (e) => {
+            const val = parseFloat(e.target.value);
+            state.fx.heatTint = val;
+            elements.heatTintVal.innerText = `${Math.round(val * 100)}%`;
+            triggerRedraw();
+        });
+    }
+
+    // Retro VHS listeners
+    if (elements.fxVhs) {
+        elements.fxVhs.addEventListener('change', (e) => {
+            state.fx.vhs = e.target.checked;
+            elements.vhsControls.classList.toggle('open', e.target.checked);
+            triggerRedraw();
+        });
+    }
+    if (elements.fxVhsTracking) {
+        elements.fxVhsTracking.addEventListener('input', (e) => {
+            const val = parseFloat(e.target.value);
+            state.fx.vhsTracking = val;
+            elements.vhsTrackingVal.innerText = `${val.toFixed(1)}x`;
+            triggerRedraw();
+        });
+    }
+    if (elements.fxVhsBleed) {
+        elements.fxVhsBleed.addEventListener('input', (e) => {
+            const val = parseFloat(e.target.value);
+            state.fx.vhsBleed = val;
+            elements.vhsBleedVal.innerText = `${val}px`;
+            triggerRedraw();
+        });
+    }
+    if (elements.fxVhsNoise) {
+        elements.fxVhsNoise.addEventListener('input', (e) => {
+            const val = parseFloat(e.target.value);
+            state.fx.vhsNoise = val;
+            elements.vhsNoiseVal.innerText = `${Math.round(val * 100)}%`;
+            triggerRedraw();
+        });
+    }
+    if (elements.fxVhsRoll) {
+        elements.fxVhsRoll.addEventListener('input', (e) => {
+            const val = parseFloat(e.target.value);
+            state.fx.vhsRoll = val;
+            elements.vhsRollVal.innerText = `${val.toFixed(1)}x`;
             triggerRedraw();
         });
     }
@@ -1774,11 +1974,20 @@ function updateWavePresets() {
 }
 
 
+function updateShapeSizeVisibility(shapeType) {
+    const isRect = shapeType === 'rectangle';
+    if (elements.rectangleSizeGroup) elements.rectangleSizeGroup.style.display = isRect ? 'block' : 'none';
+    if (elements.baseShapeSizeGroup) elements.baseShapeSizeGroup.style.display = isRect ? 'none' : 'block';
+}
+
 function initFXControls() {
     if (state.fx.beatPulse) elements.beatPulseControls.classList.add('open');
     if (state.fx.particles) elements.particleControls.classList.add('open');
     if (state.fx.vignette) elements.vignetteControls.classList.add('open');
     if (state.fx.crt) elements.crtControls.classList.add('open');
+    if (state.fx.glitch && elements.glitchControls) elements.glitchControls.classList.add('open');
+    if (state.fx.heat && elements.heatControls) elements.heatControls.classList.add('open');
+    if (state.fx.vhs && elements.vhsControls) elements.vhsControls.classList.add('open');
     if (state.fx.cameraDrift) elements.fxCameraDriftControls.classList.add('open');
 }
 
@@ -1852,6 +2061,15 @@ function syncDOMToState() {
         elements.shapeSize.value = state.visuals.shapeSize;
         elements.shapeSizeVal.innerText = `${state.visuals.shapeSize}px`;
     }
+    if (elements.rectWidth) {
+        elements.rectWidth.value = state.visuals.rectWidth;
+        elements.rectWidthVal.innerText = `${state.visuals.rectWidth}px`;
+    }
+    if (elements.rectHeight) {
+        elements.rectHeight.value = state.visuals.rectHeight;
+        elements.rectHeightVal.innerText = `${state.visuals.rectHeight}px`;
+    }
+    updateShapeSizeVisibility(state.visuals.shapeType);
     if (elements.shapeGlowStrength) {
         elements.shapeGlowStrength.value = state.visuals.shapeGlowStrength;
         elements.shapeGlowStrengthVal.innerText = `${state.visuals.shapeGlowStrength.toFixed(1)}x`;
@@ -1976,6 +2194,63 @@ function syncDOMToState() {
     }
     if (elements.fxCrtFlicker) elements.fxCrtFlicker.checked = state.fx.crtFlicker;
 
+    // Digital Glitch sync
+    if (elements.fxGlitch) elements.fxGlitch.checked = state.fx.glitch;
+    if (elements.fxGlitchIntensity) {
+        elements.fxGlitchIntensity.value = state.fx.glitchIntensity;
+        elements.glitchIntensityVal.innerText = `${state.fx.glitchIntensity.toFixed(1)}x`;
+    }
+    if (elements.fxGlitchFrequency) {
+        elements.fxGlitchFrequency.value = state.fx.glitchFrequency;
+        elements.glitchFrequencyVal.innerText = `${Math.round(state.fx.glitchFrequency * 100)}%`;
+    }
+    if (elements.fxGlitchRgb) {
+        elements.fxGlitchRgb.value = state.fx.glitchRgb;
+        elements.glitchRgbVal.innerText = `${state.fx.glitchRgb}px`;
+    }
+    if (elements.fxGlitchSlices) {
+        elements.fxGlitchSlices.value = state.fx.glitchSlices;
+        elements.glitchSlicesVal.innerText = `${state.fx.glitchSlices}`;
+    }
+
+    // Heat Shimmer sync
+    if (elements.fxHeat) elements.fxHeat.checked = state.fx.heat;
+    if (elements.fxHeatIntensity) {
+        elements.fxHeatIntensity.value = state.fx.heatIntensity;
+        elements.heatIntensityVal.innerText = `${state.fx.heatIntensity.toFixed(1)}x`;
+    }
+    if (elements.fxHeatSpeed) {
+        elements.fxHeatSpeed.value = state.fx.heatSpeed;
+        elements.heatSpeedVal.innerText = `${state.fx.heatSpeed.toFixed(1)}x`;
+    }
+    if (elements.fxHeatScale) {
+        elements.fxHeatScale.value = state.fx.heatScale;
+        elements.heatScaleVal.innerText = `${state.fx.heatScale.toFixed(1)}x`;
+    }
+    if (elements.fxHeatTint) {
+        elements.fxHeatTint.value = state.fx.heatTint;
+        elements.heatTintVal.innerText = `${Math.round(state.fx.heatTint * 100)}%`;
+    }
+
+    // Retro VHS sync
+    if (elements.fxVhs) elements.fxVhs.checked = state.fx.vhs;
+    if (elements.fxVhsTracking) {
+        elements.fxVhsTracking.value = state.fx.vhsTracking;
+        elements.vhsTrackingVal.innerText = `${state.fx.vhsTracking.toFixed(1)}x`;
+    }
+    if (elements.fxVhsBleed) {
+        elements.fxVhsBleed.value = state.fx.vhsBleed;
+        elements.vhsBleedVal.innerText = `${state.fx.vhsBleed}px`;
+    }
+    if (elements.fxVhsNoise) {
+        elements.fxVhsNoise.value = state.fx.vhsNoise;
+        elements.vhsNoiseVal.innerText = `${Math.round(state.fx.vhsNoise * 100)}%`;
+    }
+    if (elements.fxVhsRoll) {
+        elements.fxVhsRoll.value = state.fx.vhsRoll;
+        elements.vhsRollVal.innerText = `${state.fx.vhsRoll.toFixed(1)}x`;
+    }
+
     if (elements.fxCameraDrift) elements.fxCameraDrift.checked = state.fx.cameraDrift;
     if (elements.fxCameraDriftSpeed) {
         elements.fxCameraDriftSpeed.value = state.fx.cameraDriftSpeed;
@@ -2065,6 +2340,9 @@ function syncDOMToState() {
     elements.particleControls.classList.toggle('open', state.fx.particles);
     elements.vignetteControls.classList.toggle('open', state.fx.vignette);
     elements.crtControls.classList.toggle('open', state.fx.crt);
+    if (elements.glitchControls) elements.glitchControls.classList.toggle('open', state.fx.glitch);
+    if (elements.heatControls) elements.heatControls.classList.toggle('open', state.fx.heat);
+    if (elements.vhsControls) elements.vhsControls.classList.toggle('open', state.fx.vhs);
     elements.fxCameraDriftControls.classList.toggle('open', state.fx.cameraDrift);
 
     // Sync Master Glow Controls (NEW)

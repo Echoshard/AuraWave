@@ -255,6 +255,41 @@ function hexToRgba(hex, alpha) {
 
 let noisePattern = null;
 let offscreenCanvas = null;
+
+// === Post-processing scratch buffers (shared by Glitch / Heat / VHS) ===
+let fxScratchA = null, fxScratchB = null;
+function getFxScratch(which, w, h) {
+    let c = which === 'a' ? fxScratchA : fxScratchB;
+    if (!c) {
+        c = document.createElement('canvas');
+        if (which === 'a') fxScratchA = c; else fxScratchB = c;
+    }
+    if (c.width !== w || c.height !== h) { c.width = w; c.height = h; }
+    return c.getContext('2d');
+}
+
+// Reconstructs sourceCanvas onto target ctx as three additive RGB channels, each
+// offset independently, producing a chromatic-aberration / RGB-split look.
+// Clears the target first (additive build from black).
+function compositeChromaSplit(targetCtx, sourceCanvas, w, h, rDx, gDx, bDx) {
+    const tmp = getFxScratch('b', w, h);
+    const channels = [['#ff0000', rDx], ['#00ff00', gDx], ['#0000ff', bDx]];
+    targetCtx.clearRect(0, 0, w, h);
+    targetCtx.save();
+    targetCtx.globalCompositeOperation = 'lighter';
+    for (const [color, dx] of channels) {
+        tmp.globalCompositeOperation = 'source-over';
+        tmp.clearRect(0, 0, w, h);
+        tmp.drawImage(sourceCanvas, 0, 0);
+        tmp.globalCompositeOperation = 'multiply';
+        tmp.fillStyle = color;
+        tmp.fillRect(0, 0, w, h);
+        tmp.globalCompositeOperation = 'source-over';
+        targetCtx.drawImage(tmp.canvas, dx, 0);
+    }
+    targetCtx.restore();
+}
+
 function getNoisePattern(ctx) {
     if (noisePattern) return noisePattern;
     
@@ -819,110 +854,26 @@ function renderFrame() {
             ctx.beginPath();
             ctx.arc(centerX, centerY, Math.max(10, currentRadius), 0, Math.PI * 2);
             fillWithHDRBloom(ctx, glowColor, radial, true, false, glowFactor);
-        } else if (state.visuals.shapeType === 'cube') {
-            const vertices = [
-                {x: -1, y: -1, z: -1}, {x: 1, y: -1, z: -1}, {x: 1, y: 1, z: -1}, {x: -1, y: 1, z: -1},
-                {x: -1, y: -1, z: 1}, {x: 1, y: -1, z: 1}, {x: 1, y: 1, z: 1}, {x: -1, y: 1, z: 1}
-            ];
-            const edges = [
-                [0, 1], [1, 2], [2, 3], [3, 0], [4, 5], [5, 6],
-                [6, 7], [7, 4], [0, 4], [1, 5], [2, 6], [3, 7]
-            ];
-            const time = Date.now() * 0.001;
-            const rx = time * 0.45; const ry = time * 0.65; const rz = time * 0.30;
-            const sizeFactor = baseRadius * 0.65 * (1.0 + scaleFactor * 0.40);
-            
-            const projected = vertices.map(v => {
-                let y1 = v.y * Math.cos(rx) - v.z * Math.sin(rx);
-                let z1 = v.y * Math.sin(rx) + v.z * Math.cos(rx);
-                let x2 = v.x * Math.cos(ry) + z1 * Math.sin(ry);
-                let z2 = -v.x * Math.sin(ry) + z1 * Math.cos(ry);
-                let x3 = x2 * Math.cos(rz) - y1 * Math.sin(rz);
-                let y3 = x2 * Math.sin(rz) + y1 * Math.cos(rz);
-                return { x: centerX + x3 * sizeFactor, y: centerY + y3 * sizeFactor };
-            });
-            
+        } else if (state.visuals.shapeType === 'rectangle') {
+            const grow = 1.0 + scaleFactor * 0.6;
+            const halfW = ((state.visuals.rectWidth || 400) * grow) / 2;
+            const halfH = ((state.visuals.rectHeight || 250) * grow) / 2;
+            const time = (state.audio.currentTime || Date.now() * 0.001);
+            const rot = state.visuals.waveRotationEnabled
+                ? time * 0.4 * (state.visuals.waveRotationSpeed || 1)
+                : 0;
+            const cos = Math.cos(rot), sin = Math.sin(rot);
+            const corners = [[-halfW, -halfH], [halfW, -halfH], [halfW, halfH], [-halfW, halfH]];
+
             ctx.beginPath();
-            edges.forEach(([u, v]) => {
-                ctx.moveTo(projected[u].x, projected[u].y);
-                ctx.lineTo(projected[v].x, projected[v].y);
+            corners.forEach(([cx, cy], i) => {
+                const px = centerX + cx * cos - cy * sin;
+                const py = centerY + cx * sin + cy * cos;
+                if (i === 0) ctx.moveTo(px, py);
+                else ctx.lineTo(px, py);
             });
-            strokeWithHDRBloom(ctx, glowColor, colorHex, 4 + glowFactor * 16, true, glowFactor);
-        } else if (state.visuals.shapeType === 'pyramid') {
-            const vertices = [
-                {x: -1, y: 1, z: -1}, {x: 1, y: 1, z: -1}, {x: 1, y: 1, z: 1}, {x: -1, y: 1, z: 1},
-                {x: 0, y: -1.2, z: 0}
-            ];
-            const edges = [
-                [0, 1], [1, 2], [2, 3], [3, 0], [4, 0], [4, 1], [4, 2], [4, 3]
-            ];
-            const time = Date.now() * 0.001;
-            const rx = time * 0.45; const ry = time * 0.65; const rz = time * 0.30;
-            const sizeFactor = baseRadius * 0.7 * (1.0 + scaleFactor * 0.40);
-            
-            const projected = vertices.map(v => {
-                let y1 = v.y * Math.cos(rx) - v.z * Math.sin(rx);
-                let z1 = v.y * Math.sin(rx) + v.z * Math.cos(rx);
-                let x2 = v.x * Math.cos(ry) + z1 * Math.sin(ry);
-                let z2 = -v.x * Math.sin(ry) + z1 * Math.cos(ry);
-                let x3 = x2 * Math.cos(rz) - y1 * Math.sin(rz);
-                let y3 = x2 * Math.sin(rz) + y1 * Math.cos(rz);
-                return { x: centerX + x3 * sizeFactor, y: centerY + y3 * sizeFactor };
-            });
-            
-            ctx.beginPath();
-            edges.forEach(([u, v]) => {
-                ctx.moveTo(projected[u].x, projected[u].y);
-                ctx.lineTo(projected[v].x, projected[v].y);
-            });
-            strokeWithHDRBloom(ctx, glowColor, colorHex, 4 + glowFactor * 16, true, glowFactor);
-        } else if (state.visuals.shapeType === 'hypercube') {
-            const vertices = [];
-            for (let x = -1; x <= 1; x += 2) {
-                for (let y = -1; y <= 1; y += 2) {
-                    for (let z = -1; z <= 1; z += 2) {
-                        for (let w = -1; w <= 1; w += 2) {
-                            vertices.push({x, y, z, w});
-                        }
-                    }
-                }
-            }
-            const edges = [];
-            for (let i = 0; i < 16; i++) {
-                for (let j = i + 1; j < 16; j++) {
-                    let diff = 0;
-                    if (vertices[i].x !== vertices[j].x) diff++;
-                    if (vertices[i].y !== vertices[j].y) diff++;
-                    if (vertices[i].z !== vertices[j].z) diff++;
-                    if (vertices[i].w !== vertices[j].w) diff++;
-                    if (diff === 1) edges.push([i, j]);
-                }
-            }
-            const time = Date.now() * 0.001;
-            const theta = time * 0.45; const phi = time * 0.35;
-            const sizeFactor = baseRadius * 0.55 * (1.0 + scaleFactor * 0.40);
-            const distance = 2.0; 
-            
-            const projected = vertices.map(v => {
-                let x1 = v.x * Math.cos(phi) - v.w * Math.sin(phi);
-                let w1 = v.x * Math.sin(phi) + v.w * Math.cos(phi);
-                let y1 = v.y * Math.cos(phi) - w1 * Math.sin(phi);
-                let w2 = v.y * Math.sin(phi) + w1 * Math.cos(phi);
-                let y2 = y1 * Math.cos(theta) - v.z * Math.sin(theta);
-                let z1 = y1 * Math.sin(theta) + v.z * Math.cos(theta);
-                let x2 = x1 * Math.cos(theta) + z1 * Math.sin(theta);
-                let z2 = -x1 * Math.sin(theta) + z1 * Math.cos(theta);
-                
-                const factor = 1.0 / (distance - w2);
-                return { x: centerX + x2 * factor * sizeFactor * 1.5, y: centerY + y2 * factor * sizeFactor * 1.5 };
-            });
-            
-            ctx.beginPath();
-            edges.forEach(([u, v]) => {
-                ctx.moveTo(projected[u].x, projected[u].y);
-                ctx.lineTo(projected[v].x, projected[v].y);
-            });
-            strokeWithHDRBloom(ctx, glowColor, colorHex, 3 + glowFactor * 12, true, glowFactor);
+            ctx.closePath();
+            strokeWithHDRBloom(ctx, glowColor, colorHex, 5 + glowFactor * 18, true, glowFactor);
         } else if (state.visuals.shapeType === 'triangle' || state.visuals.shapeType === 'triangle_down') {
             const currentRadius = baseRadius + scaleFactor * 140;
             const time = (state.audio.currentTime || Date.now() * 0.001);
@@ -959,41 +910,6 @@ function renderFrame() {
             }
             ctx.closePath();
             strokeWithHDRBloom(ctx, glowColor, colorHex, 5 + glowFactor * 18, true, glowFactor);
-        } else if (state.visuals.shapeType === 'hexagon_prism') {
-            const vertices = [];
-            for (let i = 0; i < 6; i++) {
-                const angle = (i * Math.PI) / 3;
-                vertices.push({x: Math.cos(angle), y: Math.sin(angle), z: -1});
-            }
-            for (let i = 0; i < 6; i++) {
-                const angle = (i * Math.PI) / 3;
-                vertices.push({x: Math.cos(angle), y: Math.sin(angle), z: 1});
-            }
-            const edges = [
-                [0, 1], [1, 2], [2, 3], [3, 4], [4, 5], [5, 0],
-                [6, 7], [7, 8], [8, 9], [9, 10], [10, 11], [11, 6],
-                [0, 6], [1, 7], [2, 8], [3, 9], [4, 10], [5, 11]
-            ];
-            const time = Date.now() * 0.001;
-            const rx = time * 0.45; const ry = time * 0.65; const rz = time * 0.30;
-            const sizeFactor = baseRadius * 0.65 * (1.0 + scaleFactor * 0.40);
-            
-            const projected = vertices.map(v => {
-                let y1 = v.y * Math.cos(rx) - v.z * Math.sin(rx);
-                let z1 = v.y * Math.sin(rx) + v.z * Math.cos(rx);
-                let x2 = v.x * Math.cos(ry) + z1 * Math.sin(ry);
-                let z2 = -v.x * Math.sin(ry) + z1 * Math.cos(ry);
-                let x3 = x2 * Math.cos(rz) - y1 * Math.sin(rz);
-                let y3 = x2 * Math.sin(rz) + y1 * Math.cos(rz);
-                return { x: centerX + x3 * sizeFactor, y: centerY + y3 * sizeFactor };
-            });
-            
-            ctx.beginPath();
-            edges.forEach(([u, v]) => {
-                ctx.moveTo(projected[u].x, projected[u].y);
-                ctx.lineTo(projected[v].x, projected[v].y);
-            });
-            strokeWithHDRBloom(ctx, glowColor, colorHex, 4 + glowFactor * 14, true, glowFactor);
         } else if (state.visuals.shapeType === 'custom_image' && state.visuals.customShapeImage) {
             const img = state.visuals.customShapeImage;
             const currentSize = baseRadius * 2 + scaleFactor * 240;
@@ -1888,6 +1804,150 @@ function renderFrame() {
                     ctx.restore();
                 }
             }
+        }
+        ctx.restore();
+    }
+
+    // --- Heat Shimmer / Mirage distortion ---
+    if (state.fx.heat) {
+        const amp = (state.fx.heatIntensity !== undefined ? state.fx.heatIntensity : 1.0) * 5.0;
+        const speed = state.fx.heatSpeed !== undefined ? state.fx.heatSpeed : 1.0;
+        const scale = state.fx.heatScale !== undefined ? state.fx.heatScale : 1.0;
+        const tint = state.fx.heatTint !== undefined ? state.fx.heatTint : 0.0;
+        const t = (state.audio.currentTime || Date.now() * 0.001);
+
+        const sctx = getFxScratch('a', width, height);
+        sctx.globalCompositeOperation = 'source-over';
+        sctx.clearRect(0, 0, width, height);
+        sctx.drawImage(canvas, 0, 0);
+
+        const stripH = 2;
+        ctx.clearRect(0, 0, width, height);
+        for (let y = 0; y < height; y += stripH) {
+            const env = 0.35 + 0.65 * (y / height); // rising heat: stronger toward the bottom
+            const dx = (Math.sin(y * 0.05 * scale + t * 3.0 * speed) +
+                        Math.sin(y * 0.013 * scale - t * 2.0 * speed) * 0.5) * amp * env;
+            const dy = Math.cos(y * 0.04 * scale + t * 2.3 * speed) * amp * 0.25 * env;
+            ctx.drawImage(sctx.canvas, 0, y, width, stripH, dx, y + dy, width, stripH);
+        }
+
+        if (tint > 0) {
+            ctx.save();
+            ctx.globalCompositeOperation = 'soft-light';
+            ctx.fillStyle = `rgba(255, 150, 60, ${0.35 * tint})`;
+            ctx.fillRect(0, 0, width, height);
+            ctx.restore();
+        }
+    }
+
+    // --- Digital Glitch (RGB split + horizontal slice tearing) ---
+    if (state.fx.glitch) {
+        const intensity = state.fx.glitchIntensity !== undefined ? state.fx.glitchIntensity : 1.0;
+        const freq = state.fx.glitchFrequency !== undefined ? state.fx.glitchFrequency : 0.5;
+        const rgb = state.fx.glitchRgb !== undefined ? state.fx.glitchRgb : 8;
+        const sliceMax = state.fx.glitchSlices !== undefined ? state.fx.glitchSlices : 14;
+        const burst = Math.random() < (0.12 + freq * 0.7);
+
+        // Freeze the current frame into working buffer A
+        const work = getFxScratch('a', width, height);
+        work.globalCompositeOperation = 'source-over';
+        work.clearRect(0, 0, width, height);
+        work.drawImage(canvas, 0, 0);
+
+        // Random horizontal slice tears during a corruption burst
+        if (burst && sliceMax >= 2) {
+            const frozen = getFxScratch('b', width, height);
+            frozen.globalCompositeOperation = 'source-over';
+            frozen.clearRect(0, 0, width, height);
+            frozen.drawImage(canvas, 0, 0);
+            const sliceCount = 2 + Math.floor(Math.random() * (sliceMax - 1));
+            for (let i = 0; i < sliceCount; i++) {
+                const sy = Math.random() * height;
+                const sh = 4 + Math.random() * (height * 0.10);
+                const dx = (Math.random() - 0.5) * 80 * intensity;
+                work.drawImage(frozen.canvas, 0, sy, width, sh, dx, sy, width, sh);
+            }
+        }
+
+        // RGB channel split (amplified during a burst). Note compositeChromaSplit
+        // uses scratch 'b' internally, which is free to reuse at this point.
+        const shift = rgb * (burst ? 1.4 : 0.45) * intensity;
+        if (shift >= 1) {
+            compositeChromaSplit(ctx, work.canvas, width, height, shift, 0, -shift);
+        } else {
+            ctx.clearRect(0, 0, width, height);
+            ctx.drawImage(work.canvas, 0, 0);
+        }
+    }
+
+    // --- Retro VHS Tape (90's) ---
+    if (state.fx.vhs) {
+        const tracking = state.fx.vhsTracking !== undefined ? state.fx.vhsTracking : 1.0;
+        const bleed = state.fx.vhsBleed !== undefined ? state.fx.vhsBleed : 3;
+        const noiseAmt = state.fx.vhsNoise !== undefined ? state.fx.vhsNoise : 0.5;
+        const rollSpeed = state.fx.vhsRoll !== undefined ? state.fx.vhsRoll : 1.0;
+        const t = (state.audio.currentTime || Date.now() * 0.001);
+
+        // Freeze current frame into B, build wavy-tracked image into A
+        const src = getFxScratch('b', width, height);
+        src.globalCompositeOperation = 'source-over';
+        src.clearRect(0, 0, width, height);
+        src.drawImage(canvas, 0, 0);
+
+        const work = getFxScratch('a', width, height);
+        work.globalCompositeOperation = 'source-over';
+        work.clearRect(0, 0, width, height);
+
+        // Rolling tracking band sweeping vertically
+        const bandH = height * 0.10;
+        const bandY = rollSpeed > 0 ? (height - ((t * 60 * rollSpeed) % (height + bandH))) : -99999;
+
+        const stripH = 2;
+        for (let y = 0; y < height; y += stripH) {
+            let wob = (Math.sin(y * 0.015 + t * 1.8) * 2.0 + Math.sin(y * 0.2 - t * 6.0) * 0.7) * tracking;
+            if (y > bandY && y < bandY + bandH) {
+                const f = 1 - Math.abs((y - (bandY + bandH / 2)) / (bandH / 2));
+                wob += (Math.sin(y * 0.5) * 18 + 10) * f * tracking;
+            }
+            work.drawImage(src.canvas, 0, y, width, stripH, wob, y, width, stripH);
+        }
+
+        // Chroma bleed: red pushed right, blue pulled left (reuses scratch 'b')
+        if (bleed >= 1) {
+            compositeChromaSplit(ctx, work.canvas, width, height, bleed, 0, -bleed * 0.6);
+        } else {
+            ctx.clearRect(0, 0, width, height);
+            ctx.drawImage(work.canvas, 0, 0);
+        }
+
+        ctx.save();
+        // Bright rolling tracking band glow
+        if (rollSpeed > 0 && bandY > -10000) {
+            const grad = ctx.createLinearGradient(0, bandY, 0, bandY + bandH);
+            grad.addColorStop(0, 'rgba(255,255,255,0)');
+            grad.addColorStop(0.5, `rgba(255,255,255,${0.10 + 0.10 * tracking})`);
+            grad.addColorStop(1, 'rgba(255,255,255,0)');
+            ctx.fillStyle = grad;
+            ctx.fillRect(0, bandY, width, bandH);
+        }
+
+        // Worn tape static (random horizontal dashes)
+        if (noiseAmt > 0) {
+            const dashes = Math.floor(noiseAmt * 240);
+            for (let i = 0; i < dashes; i++) {
+                const nx = Math.random() * width;
+                const ny = Math.random() * height;
+                const nw = 2 + Math.random() * 30 * noiseAmt;
+                ctx.fillStyle = `rgba(255,255,255,${Math.random() * 0.5 * noiseAmt})`;
+                ctx.fillRect(nx, ny, nw, 1);
+            }
+        }
+
+        // Soft VHS scanlines
+        ctx.globalCompositeOperation = 'source-over';
+        ctx.fillStyle = 'rgba(0,0,0,0.06)';
+        for (let y = 0; y < height; y += 3) {
+            ctx.fillRect(0, y, width, 1);
         }
         ctx.restore();
     }
