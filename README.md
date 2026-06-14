@@ -13,6 +13,7 @@ AuraWave is a hardware-accelerated audio visualizer that compiles viewport-accur
 - **Volumetric Bloom**: Independent bloom brightness and custom color controls with HDR multi-pass glow.
 - **Ambient Synth Engine**: Web Audio synthesizer with three preset soundscapes, pre-rendering offline into raw PCM audio buffers.
 - **Hybrid Remuxing**: Silent WebM output from the browser is sent to the Flask server, where FFmpeg remuxes it with original or synthesized audio into a standard H.264/AAC MP4.
+- **Style / FX Post-Processing**: Real-time canvas effects layered on top of the visualizer — glitch, heat distortion, VHS, CRT, and more.
 
 ---
 
@@ -29,6 +30,21 @@ AuraWave is a hardware-accelerated audio visualizer that compiles viewport-accur
 
 ---
 
+## Style / FX Effects
+
+Post-processing effects that apply to the full canvas after the visualizer renders. Multiple effects can be active simultaneously. Each has a toggle and its own set of sliders.
+
+| Effect | Description |
+|---|---|
+| **Digital Glitch** | RGB channel split with random horizontal slice tearing. Controls: intensity, slice count, and speed |
+| **Heat Shimmer Mirage** | Sinusoidal row-displacement distortion simulating heat haze rising off a surface. Controls: amplitude and wave frequency |
+| **Retro VHS Tape** | Chroma bleed, horizontal tracking wobble, rolling interference band, and static grain. Controls: chroma bleed amount, wobble, band opacity, and static strength |
+| **CRT Scanlines** | Horizontal scanline overlay with adjustable opacity and line spacing |
+| **Cinematic Camera Drift** | Subtle slow-motion pan and zoom on the canvas, simulating a floating camera |
+| **Particle Field** | Layered particle system with multiple styles: Sparkles, Fire Embers (heat-current sway), Fireflies, Snowfall, Matrix Rain, and Cosmic Dust |
+
+---
+
 ## Waveform Shapes
 
 Shapes mode renders a single glowing geometric object at the center of the canvas. All shapes support the same glow, bloom, and volume-reactivity controls.
@@ -37,16 +53,14 @@ Shapes mode renders a single glowing geometric object at the center of the canva
 |---|---|
 | **Neon Beat Ring** | Stroke circle that expands and brightens on beat hits |
 | **Neon Beat Sphere** | Radial-gradient filled orb with a luminous core |
-| **Rotating Wireframe Cube** | 3D cube with full Euler rotation on all three axes |
-| **4D Rotating Tesseract** | Projected 4D hypercube rotating simultaneously in 3D and 4D |
-| **Rotating Wireframe Pyramid** | 3D pyramid with the same multi-axis rotation as the cube |
 | **2D Triangle (Upward / Downward)** | Equilateral triangle, optionally spinning with the rotation control |
 | **2D Hexagon** | Six-sided polygon with optional rotation |
-| **Rotating Hexagonal Prism** | 3D hexagonal prism with full Euler rotation |
+| **Rectangle** | Flat rectangle with independently adjustable Width (40–1800 px) and Height (40–1800 px); supports rotation |
 | **Custom PNG Image** | Upload any PNG or WEBP — it receives the full HDR glow, beat-reactive scale, and optional waveform rotation |
 
 ### Shape Controls
 - **Base Shape Size** — Base radius / size of the shape (100–1000 px)
+- **Rectangle Width / Height** — Independent width and height sliders for the rectangle shape
 - **Glow Size / Radius** — Bloom spread multiplier (0–8×)
 - **Reactivity Floor** — Minimum volume threshold before scale or glow activates
 - **Volume Reactive Scale** — Shape grows with audio volume
@@ -88,18 +102,29 @@ Shapes mode renders a single glowing geometric object at the center of the canva
 ### Segmented Bars
 - Breaks bars into discrete LED-style segments with adjustable height and gap
 
+### Foreground Image Layer
+- Upload a PNG/WEBP/MP4 foreground overlay
+- **In Front / Behind Visualizer** — Toggle whether the foreground image renders above or below the visualizer
+
 ---
 
 ## Setup & Running
 
 ### Prerequisites
 - Python 3.8+
-- FFmpeg (must be installed and available in your system's PATH)
-- A modern Chromium browser (Chrome, Edge, Brave) with WebCodecs support
+- A modern Chromium browser (Chrome, Edge, Brave) with WebCodecs support — accessed via `http://localhost:5000`
+
+> **FFmpeg** is recommended to have installed and available on your PATH before running. `run.bat` will attempt to install it automatically via `winget` if it is not found, but for best results install it manually from [ffmpeg.org](https://ffmpeg.org/download.html) and add it to your PATH first.
 
 ### Running the Application
-Double-click `run.bat` or run:
+Double-click **`run.bat`**. It will:
+1. Install FFmpeg via winget if not already present
+2. Create an isolated Python virtual environment (`.env`) on first run
+3. Install all Python dependencies into that environment
+4. Open `http://localhost:5000` in your browser
+5. Start the Flask server
 
+Or run manually:
 ```bash
 # 1. Install dependencies
 pip install -r requirements.txt
@@ -115,6 +140,6 @@ Open your browser to `http://localhost:5000`.
 
 - `app.py`: Flask web server, upload handling, and background task FFmpeg remuxing.
 - `static/js/export.js`: WebCodecs offline renderer, Radix-2 FFT logic, and WAV PCM encoder.
-- `static/js/visualizer.js`: Preview rendering, particle engine, and bloom/glow post-processing.
+- `static/js/visualizer.js`: Preview rendering, particle engine, FX post-processing, and bloom/glow pipeline.
 - `static/js/synth.js`: Web Audio synthesizers and chord progression loops.
 - `static/js/core.js`: Global state management and UI event routing.
