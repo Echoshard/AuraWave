@@ -4,6 +4,9 @@ import shutil
 import subprocess
 import logging
 import threading
+import json
+import base64
+import time
 from flask import Flask, render_template, request, jsonify, send_from_directory
 from werkzeug.utils import secure_filename
 from PIL import Image, ImageDraw, ImageFont
@@ -23,12 +26,14 @@ app = Flask(__name__)
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 UPLOAD_FOLDER = os.path.join(BASE_DIR, 'uploads')
 EXPORT_FOLDER = os.path.join(BASE_DIR, 'exports')
+TEMPLATE_FOLDER = os.path.join(BASE_DIR, 'templates', 'user')
 ALLOWED_IMAGE_EXTENSIONS = {'png', 'jpg', 'jpeg', 'webp', 'mp4', 'webm', 'mov'}
 ALLOWED_AUDIO_EXTENSIONS = {'mp3', 'wav', 'ogg', 'm4a', 'flac'}
 
 # Ensure folders exist
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 os.makedirs(EXPORT_FOLDER, exist_ok=True)
+os.makedirs(TEMPLATE_FOLDER, exist_ok=True)
 
 app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
 app.config['EXPORT_FOLDER'] = EXPORT_FOLDER
@@ -36,6 +41,22 @@ app.config['MAX_CONTENT_LENGTH'] = 600 * 1024 * 1024  # 600 MB — supports ~20 
 
 def allowed_file(filename, allowed_set):
     return '.' in filename and filename.rsplit('.', 1)[1].lower() in allowed_set
+
+def template_filename(name):
+    safe_name = secure_filename((name or '').strip())
+    if not safe_name:
+        safe_name = 'template'
+    root, ext = os.path.splitext(safe_name)
+    if ext.lower() != '.json':
+        safe_name = f"{safe_name}.json"
+    return safe_name
+
+def template_path(name):
+    filename = template_filename(name)
+    path = os.path.abspath(os.path.join(TEMPLATE_FOLDER, filename))
+    if not path.startswith(os.path.abspath(TEMPLATE_FOLDER) + os.sep):
+        raise ValueError('Invalid template name')
+    return filename, path
 
 def get_audio_duration(file_path):
     """Retrieves audio duration using ffprobe."""
@@ -49,6 +70,32 @@ def get_audio_duration(file_path):
     except Exception as e:
         logger.error(f"Error reading audio duration with ffprobe: {e}")
         return 10.0  # Fallback duration
+
+def normalize_ffmpeg_options(source=None):
+    """Return safe final MP4 encode options from form/json data."""
+    source = source or {}
+    allowed_presets = {'ultrafast', 'superfast', 'veryfast', 'faster', 'fast', 'medium', 'slow', 'slower'}
+    allowed_audio = {'128k', '160k', '192k', '256k', '320k'}
+
+    preset = str(source.get('ffmpeg_preset') or source.get('preset') or 'fast').lower()
+    if preset not in allowed_presets:
+        preset = 'fast'
+
+    try:
+        crf = int(source.get('ffmpeg_crf') or source.get('crf') or 18)
+    except (TypeError, ValueError):
+        crf = 18
+    crf = max(12, min(30, crf))
+
+    audio_bitrate = str(source.get('ffmpeg_audio_bitrate') or source.get('audio_bitrate') or '192k').lower()
+    if audio_bitrate not in allowed_audio:
+        audio_bitrate = '192k'
+
+    return {
+        'preset': preset,
+        'crf': str(crf),
+        'audio_bitrate': audio_bitrate
+    }
 
 @app.route('/favicon.ico')
 def favicon():
@@ -100,6 +147,54 @@ def serve_upload(filename):
 def serve_export(filename):
     return send_from_directory(app.config['EXPORT_FOLDER'], filename)
 
+@app.route('/api/templates', methods=['GET'])
+def list_templates():
+    """List saved visualizer setting templates."""
+    try:
+        templates = []
+        for filename in sorted(os.listdir(TEMPLATE_FOLDER), key=str.lower):
+            if filename.lower().endswith('.json'):
+                path = os.path.join(TEMPLATE_FOLDER, filename)
+                templates.append({
+                    'name': filename[:-5],
+                    'filename': filename,
+                    'modified': os.path.getmtime(path)
+                })
+        return jsonify({'templates': templates})
+    except Exception as e:
+        logger.error(f"Failed to list templates: {e}")
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/templates/<name>', methods=['GET'])
+def load_template(name):
+    """Load a saved visualizer setting template."""
+    try:
+        filename, path = template_path(name)
+        if not os.path.exists(path):
+            return jsonify({'error': f'Template not found: {filename}'}), 404
+        with open(path, 'r', encoding='utf-8') as f:
+            return jsonify(json.load(f))
+    except Exception as e:
+        logger.error(f"Failed to load template: {e}")
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/templates', methods=['POST'])
+def save_template():
+    """Save visualizer settings as a simple JSON template."""
+    try:
+        data = request.get_json(silent=True) or {}
+        filename, path = template_path(data.get('name'))
+        payload = data.get('template') or data.get('settings')
+        if not isinstance(payload, dict):
+            return jsonify({'error': 'Template settings must be a JSON object'}), 400
+        with open(path, 'w', encoding='utf-8') as f:
+            json.dump(payload, f, indent=2)
+        logger.info(f"Saved settings template: {filename}")
+        return jsonify({'status': 'success', 'name': filename[:-5], 'filename': filename})
+    except Exception as e:
+        logger.error(f"Failed to save template: {e}")
+        return jsonify({'error': str(e)}), 500
+
 @app.route('/api/clean', methods=['POST'])
 def clean_uploads():
     """Deletes all files inside the uploads folder."""
@@ -116,7 +211,7 @@ def clean_uploads():
         logger.error(f"Failed to clean uploads folder: {e}")
         return jsonify({'error': str(e)}), 500
 
-def run_remux_thread(video_input_args, m_path, t_id, a_path, a_del_path, cleanup_paths=None):
+def run_remux_thread(video_input_args, m_path, t_id, a_path, a_del_path, cleanup_paths=None, ffmpeg_options=None):
     """Run FFmpeg in a background thread to transcode WebM → H.264 MP4.
 
     video_input_args is the list of FFmpeg input args for the video source, e.g.
@@ -132,6 +227,7 @@ def run_remux_thread(video_input_args, m_path, t_id, a_path, a_del_path, cleanup
     once the transcode finishes.
     """
     cleanup_paths = cleanup_paths or []
+    ffmpeg_options = normalize_ffmpeg_options(ffmpeg_options)
     process = None
     try:
         if a_path and os.path.exists(a_path):
@@ -141,10 +237,10 @@ def run_remux_thread(video_input_args, m_path, t_id, a_path, a_del_path, cleanup
                 '-i', a_path,
                 '-c:v', 'libx264',
                 '-pix_fmt', 'yuv420p',
-                '-preset', 'fast',
-                '-crf', '18',
+                '-preset', ffmpeg_options['preset'],
+                '-crf', ffmpeg_options['crf'],
                 '-c:a', 'aac',
-                '-b:a', '192k',
+                '-b:a', ffmpeg_options['audio_bitrate'],
                 '-shortest',
                 m_path
             ]
@@ -154,8 +250,8 @@ def run_remux_thread(video_input_args, m_path, t_id, a_path, a_del_path, cleanup
                 *video_input_args,
                 '-c:v', 'libx264',
                 '-pix_fmt', 'yuv420p',
-                '-preset', 'fast',
-                '-crf', '18',
+                '-preset', ffmpeg_options['preset'],
+                '-crf', ffmpeg_options['crf'],
                 m_path
             ]
         logger.info(f"Remuxing WebM to MP4: {' '.join(cmd)}")
@@ -249,7 +345,8 @@ def remux_video():
         'last_log_line': 'FFmpeg remuxing and audio transcoding starting...'
     }
     
-    thread = threading.Thread(target=run_remux_thread, args=(['-i', webm_path], mp4_path, task_id, audio_path, audio_to_delete, [webm_path]))
+    ffmpeg_options = normalize_ffmpeg_options(request.form)
+    thread = threading.Thread(target=run_remux_thread, args=(['-i', webm_path], mp4_path, task_id, audio_path, audio_to_delete, [webm_path], ffmpeg_options))
     thread.start()
     
     return jsonify({
@@ -365,9 +462,274 @@ def remux_finalize(session_id):
             audio_path = candidate
 
     render_tasks[task_id] = {'status': 'processing', 'error': None, 'url': f'/exports/{task_id}', 'last_log_line': 'FFmpeg starting...'}
+    ffmpeg_options = normalize_ffmpeg_options(request.form)
     threading.Thread(
         target=run_remux_thread,
-        args=(video_input_args, mp4_path, task_id, audio_path, audio_to_delete, cleanup_paths)
+        args=(video_input_args, mp4_path, task_id, audio_path, audio_to_delete, cleanup_paths, ffmpeg_options)
+    ).start()
+    return jsonify({'status': 'processing', 'task_id': task_id, 'url': f'/exports/{task_id}'})
+
+
+def launch_playwright_browser(pw):
+    """Launch an installed Chromium-family browser, preferring Edge/Chrome on Windows."""
+    launch_args = [
+        '--autoplay-policy=no-user-gesture-required',
+        '--disable-dev-shm-usage',
+        '--ignore-gpu-blocklist',
+        '--enable-webgl',
+    ]
+    errors = []
+    for channel in ('msedge', 'chrome', None):
+        try:
+            kwargs = {'headless': True, 'args': launch_args}
+            if channel:
+                kwargs['channel'] = channel
+            return pw.chromium.launch(**kwargs)
+        except Exception as e:
+            errors.append(f"{channel or 'bundled chromium'}: {e}")
+    raise RuntimeError("Could not launch headless Chromium. Tried: " + " | ".join(errors))
+
+
+def run_exact_server_render(task_id, payload, base_url):
+    """Render the existing canvas visualizer in headless Chromium and pipe PNG frames to FFmpeg."""
+    try:
+        from playwright.sync_api import sync_playwright
+    except Exception as e:
+        render_tasks[task_id] = {
+            'status': 'failed',
+            'url': None,
+            'error': f"Missing Python dependency: playwright. Install requirements.txt and run: python -m playwright install chromium. Details: {e}",
+            'last_log_line': ''
+        }
+        return
+
+    fps = int(payload.get('fps') or 30)
+    duration = float(payload.get('duration') or 0)
+    ffmpeg_options = normalize_ffmpeg_options(payload.get('ffmpeg') or {})
+    total_frames = max(1, int(duration * fps + 0.999))
+    output_path = os.path.join(app.config['EXPORT_FOLDER'], task_id)
+    audio_filename = payload.get('audio_filename')
+    audio_path = os.path.join(app.config['UPLOAD_FOLDER'], secure_filename(audio_filename or ''))
+
+    if not audio_filename or not os.path.exists(audio_path):
+        render_tasks[task_id] = {
+            'status': 'failed',
+            'url': None,
+            'error': 'Exact server render currently requires an uploaded audio file.',
+            'last_log_line': ''
+        }
+        return
+
+    cmd = [
+        'ffmpeg', '-y',
+        '-f', 'image2pipe',
+        '-vcodec', 'png',
+        '-framerate', str(fps),
+        '-i', 'pipe:0',
+        '-i', audio_path,
+        '-c:v', 'libx264',
+        '-pix_fmt', 'yuv420p',
+        '-preset', ffmpeg_options['preset'],
+        '-crf', ffmpeg_options['crf'],
+        '-c:a', 'aac',
+        '-b:a', ffmpeg_options['audio_bitrate'],
+        '-shortest',
+        output_path
+    ]
+
+    browser = None
+    process = None
+    try:
+        render_tasks[task_id]['last_log_line'] = 'Launching headless browser...'
+        with sync_playwright() as pw:
+            browser = launch_playwright_browser(pw)
+            page = browser.new_page(viewport={'width': 1920, 'height': 1080}, device_scale_factor=1)
+            page.goto(base_url, wait_until='networkidle', timeout=60000)
+
+            render_tasks[task_id]['last_log_line'] = 'Preparing exact canvas renderer...'
+            page.evaluate(
+                """async ({ payload }) => {
+                    const wait = ms => new Promise(resolve => setTimeout(resolve, ms));
+                    await wait(250);
+
+                    const assignPlain = (target, source) => {
+                        if (!source) return;
+                        for (const [key, value] of Object.entries(source)) {
+                            target[key] = value;
+                        }
+                    };
+
+                    syncDOMToState();
+                    assignPlain(state.visuals, payload.visuals);
+                    assignPlain(state.fx, payload.fx);
+                    assignPlain(state.text, payload.text);
+                    state.visuals.particles = [];
+                    state.audio.currentTime = 0;
+                    state.audio.isPlaying = false;
+                    state.audio.synthActive = false;
+
+                    resizeCanvas();
+                    setupParticles();
+
+                    const loadImage = url => new Promise((resolve, reject) => {
+                        if (!url) return resolve(null);
+                        const img = new Image();
+                        img.onload = () => resolve(img);
+                        img.onerror = () => reject(new Error(`Could not load image ${url}`));
+                        img.src = url;
+                    });
+
+                    const loadVideo = url => new Promise((resolve, reject) => {
+                        if (!url) return resolve(null);
+                        const video = document.createElement('video');
+                        video.muted = true;
+                        video.loop = true;
+                        video.preload = 'auto';
+                        video.playsInline = true;
+                        video.onloadedmetadata = () => resolve(video);
+                        video.onerror = () => reject(new Error(`Could not load video ${url}`));
+                        video.src = url;
+                        video.load();
+                    });
+
+                    const isVideoUrl = url => /\\.(mp4|webm|mov)(\\?|$)/i.test(url || '');
+
+                    state.visuals.bgImage = null;
+                    state.visuals.bgVideo = null;
+                    state.visuals.fgImage = null;
+                    state.visuals.fgVideo = null;
+                    state.visuals.customShapeImage = null;
+
+                    const visuals = payload.visuals || {};
+
+                    if (visuals.bgImageUrl) {
+                        if (isVideoUrl(visuals.bgImageUrl)) {
+                            state.visuals.bgVideo = await loadVideo(visuals.bgImageUrl);
+                        } else {
+                            state.visuals.bgImage = await loadImage(visuals.bgImageUrl);
+                        }
+                    }
+                    if (visuals.fgImageUrl) {
+                        if (isVideoUrl(visuals.fgImageUrl)) {
+                            state.visuals.fgVideo = await loadVideo(visuals.fgImageUrl);
+                        } else {
+                            state.visuals.fgImage = await loadImage(visuals.fgImageUrl);
+                        }
+                    }
+                    if (visuals.customShapeImageUrl) {
+                        state.visuals.customShapeImage = await loadImage(visuals.customShapeImageUrl);
+                    }
+
+                    const audioResp = await fetch(payload.audio_url);
+                    if (!audioResp.ok) throw new Error('Could not load audio in headless renderer');
+                    const audioData = await audioResp.arrayBuffer();
+                    const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+                    const exportBuffer = await audioCtx.decodeAudioData(audioData.slice(0));
+
+                    let prevSmoothed = new Uint8Array(256);
+                    let currentTimeDomain = new Uint8Array(512).fill(128);
+                    state.audio.analyser = {
+                        frequencyBinCount: 256,
+                        fftSize: 512,
+                        getByteFrequencyData(array) {
+                            for (let i = 0; i < Math.min(array.length, prevSmoothed.length); i++) {
+                                array[i] = prevSmoothed[i];
+                            }
+                        },
+                        getByteTimeDomainData(array) {
+                            for (let i = 0; i < Math.min(array.length, currentTimeDomain.length); i++) {
+                                array[i] = currentTimeDomain[i];
+                            }
+                        }
+                    };
+
+                    window.__exactServerRenderFrame = async (frameIndex, fps) => {
+                        const time = frameIndex / fps;
+                        state.audio.currentTime = time;
+                        prevSmoothed = extractFFTBins(exportBuffer, time, prevSmoothed, state.visuals.smoothing);
+                        currentTimeDomain = extractTimeDomainBins(exportBuffer, time);
+                        if (state.visuals.bgVideo) await syncVideoToTime(state.visuals.bgVideo, time);
+                        if (state.visuals.fgVideo) await syncVideoToTime(state.visuals.fgVideo, time);
+                        renderFrame();
+                        return elements.visualizerCanvas.toDataURL('image/png').split(',')[1];
+                    };
+                }""",
+                {'payload': payload}
+            )
+
+            render_tasks[task_id]['last_log_line'] = 'Starting FFmpeg frame pipe...'
+            process = subprocess.Popen(cmd, stdin=subprocess.PIPE, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, bufsize=0)
+
+            last_progress_update = time.time()
+            for frame_index in range(total_frames):
+                b64_png = page.evaluate(
+                    "(args) => window.__exactServerRenderFrame(args.frameIndex, args.fps)",
+                    {'frameIndex': frame_index, 'fps': fps}
+                )
+                process.stdin.write(base64.b64decode(b64_png))
+
+                now = time.time()
+                if now - last_progress_update > 1.0 or frame_index == total_frames - 1:
+                    pct = int(((frame_index + 1) / total_frames) * 100)
+                    render_tasks[task_id]['last_log_line'] = f'Exact server render: frame {frame_index + 1}/{total_frames} ({pct}%)'
+                    last_progress_update = now
+
+            process.stdin.close()
+            process.wait()
+            if process.returncode == 0:
+                render_tasks[task_id] = {
+                    'status': 'completed',
+                    'url': f'/exports/{task_id}',
+                    'error': None,
+                    'last_log_line': 'Exact server render completed successfully!'
+                }
+            else:
+                logger.error("Exact server render FFmpeg failed")
+                render_tasks[task_id] = {
+                    'status': 'failed',
+                    'url': None,
+                    'error': f'FFmpeg failed during exact server render (exit {process.returncode}).',
+                    'last_log_line': ''
+                }
+    except Exception as e:
+        logger.exception("Exact server render failed")
+        render_tasks[task_id] = {
+            'status': 'failed',
+            'url': None,
+            'error': str(e),
+            'last_log_line': ''
+        }
+        if process and process.poll() is None:
+            try:
+                process.kill()
+            except Exception:
+                pass
+    finally:
+        if browser:
+            try:
+                browser.close()
+            except Exception:
+                pass
+
+
+@app.route('/api/server-render-exact', methods=['POST'])
+def server_render_exact():
+    """Render the exact browser canvas in headless Chromium and encode with FFmpeg."""
+    payload = request.get_json(silent=True) or {}
+    export_name = secure_filename(payload.get('export_name') or f"exact_{uuid.uuid4()}")
+    if export_name.lower().endswith('.mp4'):
+        export_name = export_name[:-4]
+    task_id = f"{export_name}.mp4"
+    render_tasks[task_id] = {
+        'status': 'processing',
+        'error': None,
+        'url': f'/exports/{task_id}',
+        'last_log_line': 'Exact server render queued...'
+    }
+    threading.Thread(
+        target=run_exact_server_render,
+        args=(task_id, payload, request.host_url),
+        daemon=True
     ).start()
     return jsonify({'status': 'processing', 'task_id': task_id, 'url': f'/exports/{task_id}'})
 

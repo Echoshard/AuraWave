@@ -1,14 +1,14 @@
 /* AuraWave — Segment-Based WebCodecs Export
  *
  * Memory model: video is encoded in short segments. Each segment's encoder,
- * muxer and ArrayBufferTarget are flushed, uploaded, then discarded before the
+ * muxer and StreamTarget are flushed/uploaded incrementally before the
  * next segment begins, so the VP9 encoder's internal frame buffers are released
  * frequently and peak browser RAM stays bounded regardless of total video
  * length. Shorter segments = lower peak RAM (at the cost of more HTTP requests).
  * No CDN dependency at render time.
  *
  * Requires: /static/js/vendor/webm-muxer.js loaded before this file
- *           (places Muxer + ArrayBufferTarget on window.WebMMuxer)
+ *           (places Muxer + StreamTarget on window.WebMMuxer)
  */
 
 // MessageChannel yield — not throttled in background tabs unlike setTimeout
@@ -18,6 +18,23 @@ function yieldToEventLoop() {
         port1.onmessage = resolve;
         port2.postMessage(null);
     });
+}
+
+function renderMemoryLabel() {
+    if (!performance.memory) return '';
+    const used = Math.round(performance.memory.usedJSHeapSize / 1024 / 1024);
+    const total = Math.round(performance.memory.totalJSHeapSize / 1024 / 1024);
+    return ` · JS heap ${used}/${total} MB`;
+}
+
+function waitForBrowserCleanup(ms = 0) {
+    return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+function releaseExportRenderMemory() {
+    if (typeof releaseVisualizerScratchBuffers === 'function') {
+        releaseVisualizerScratchBuffers();
+    }
 }
 
 // Seek a video element to the given time and wait for the seek to complete
@@ -33,7 +50,25 @@ function syncVideoToTime(video, time) {
 }
 
 document.addEventListener('DOMContentLoaded', () => {
-    state.export.method = 'client';
+    state.export.method = 'server_exact';
+
+    const fastClientToggle = document.getElementById('fast-client-render-toggle');
+    if (fastClientToggle) {
+        fastClientToggle.checked = state.export.method === 'client';
+        fastClientToggle.addEventListener('change', () => {
+            state.export.method = fastClientToggle.checked ? 'client' : 'server_exact';
+        });
+    }
+    const ffmpegPresetMenu = document.getElementById('ffmpeg-output-preset');
+    if (ffmpegPresetMenu) {
+        ffmpegPresetMenu.querySelectorAll('.ffmpeg-preset-option').forEach(button => {
+            button.addEventListener('click', () => {
+                ffmpegPresetMenu.dataset.value = button.dataset.value || 'balanced';
+                updateFFmpegPresetSummary();
+            });
+        });
+        updateFFmpegPresetSummary();
+    }
 
     if (elements.btnExport) {
         elements.btnExport.addEventListener('click', () => {
@@ -41,7 +76,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 alert('Please load an audio track or enable the Built-in Synth Demo first!');
                 return;
             }
-            runClientSideExport(false);
+            runSelectedExport(false);
         });
     }
 
@@ -52,12 +87,253 @@ document.addEventListener('DOMContentLoaded', () => {
                 alert('Please load an audio track or enable the Built-in Synth Demo first!');
                 return;
             }
-            runClientSideExport(true);
+            runSelectedExport(true);
         });
     }
 });
 
 // ─── Cooley-Tukey radix-2 FFT ────────────────────────────────────────────────
+
+function runSelectedExport(previewMode = false) {
+    const fastClientToggle = document.getElementById('fast-client-render-toggle');
+    state.export.method = fastClientToggle && fastClientToggle.checked ? 'client' : 'server_exact';
+    if (state.export.method === 'client') {
+        runClientSideExport(previewMode);
+        return;
+    }
+    runExactServerExport(previewMode);
+}
+
+function getFFmpegOutputPreset() {
+    const selected = document.getElementById('ffmpeg-output-preset')?.dataset.value || 'balanced';
+    const presets = {
+        balanced: {
+            label: 'Balanced MP4: CRF 18, fast, AAC 192k',
+            ffmpeg_preset: 'fast',
+            ffmpeg_crf: 18,
+            ffmpeg_audio_bitrate: '192k'
+        },
+        high: {
+            label: 'High quality MP4: CRF 16, slow, AAC 256k',
+            ffmpeg_preset: 'slow',
+            ffmpeg_crf: 16,
+            ffmpeg_audio_bitrate: '256k'
+        },
+        archival: {
+            label: 'Archival MP4: CRF 14, slow, AAC 320k',
+            ffmpeg_preset: 'slow',
+            ffmpeg_crf: 14,
+            ffmpeg_audio_bitrate: '320k'
+        },
+        small: {
+            label: 'Smaller MP4: CRF 23, medium, AAC 160k',
+            ffmpeg_preset: 'medium',
+            ffmpeg_crf: 23,
+            ffmpeg_audio_bitrate: '160k'
+        },
+        draft: {
+            label: 'Draft MP4: CRF 28, veryfast, AAC 128k',
+            ffmpeg_preset: 'veryfast',
+            ffmpeg_crf: 28,
+            ffmpeg_audio_bitrate: '128k'
+        }
+    };
+    return presets[selected] || presets.balanced;
+}
+
+function updateFFmpegPresetSummary() {
+    const menu = document.getElementById('ffmpeg-output-preset');
+    const summary = document.getElementById('ffmpeg-preset-summary');
+    const preset = getFFmpegOutputPreset();
+    if (summary) summary.innerText = preset.label;
+    if (menu) {
+        menu.querySelectorAll('.ffmpeg-preset-option').forEach(button => {
+            const isActive = button.dataset.value === (menu.dataset.value || 'balanced');
+            button.classList.toggle('active', isActive);
+            button.style.borderColor = isActive ? 'rgba(99,102,241,0.45)' : 'rgba(255,255,255,0.08)';
+            button.style.background = isActive ? 'rgba(99,102,241,0.18)' : 'rgba(255,255,255,0.035)';
+            button.style.color = isActive ? 'var(--text-primary)' : 'var(--text-secondary)';
+        });
+    }
+}
+
+function cloneExportSettings(value) {
+    return JSON.parse(JSON.stringify(value));
+}
+
+function buildExactServerRenderPayload(previewMode = false) {
+    const visuals = cloneExportSettings(state.visuals);
+    [
+        'bgImage',
+        'bgVideo',
+        'fgImage',
+        'fgVideo',
+        'customShapeImage',
+        'particles'
+    ].forEach(key => delete visuals[key]);
+
+    const serverFilename = state.audio.audioUrl ? state.audio.audioUrl.split('/uploads/')[1] : '';
+    let baseName = (state.audio.fileName || 'visualizer');
+    const dot = baseName.lastIndexOf('.');
+    if (dot > 0) baseName = baseName.substring(0, dot);
+    const suffix = previewMode ? '_preview' : '_viz';
+    const fullDuration = state.audio.duration || (state.audio.buffer ? state.audio.buffer.duration : 0);
+
+    const ffmpegPreset = getFFmpegOutputPreset();
+    return {
+        fps: 30,
+        duration: previewMode ? Math.min(15.0, fullDuration) : fullDuration,
+        audio_filename: serverFilename,
+        audio_url: state.audio.audioUrl,
+        export_name: baseName + suffix,
+        ffmpeg: {
+            preset: ffmpegPreset.ffmpeg_preset,
+            crf: ffmpegPreset.ffmpeg_crf,
+            audio_bitrate: ffmpegPreset.ffmpeg_audio_bitrate
+        },
+        visuals,
+        fx: cloneExportSettings(state.fx),
+        text: cloneExportSettings(state.text)
+    };
+}
+
+async function runExactServerExport(previewMode = false) {
+    if (state.audio.synthActive) {
+        alert('Exact server render currently needs an uploaded audio file. Please load an audio track instead of the built-in synth.');
+        return;
+    }
+    if (!state.audio.audioUrl || !state.audio.buffer) {
+        alert('Please load an audio track before exporting.');
+        return;
+    }
+
+    const payload = buildExactServerRenderPayload(previewMode);
+    if (!payload.audio_filename || !payload.audio_url || !payload.duration) {
+        alert('Audio upload is not ready yet. Please reload the track and try again.');
+        return;
+    }
+
+    stopAudio();
+    state.audio.isPlaying = false;
+    if (typeof animationId !== 'undefined' && animationId) {
+        cancelAnimationFrame(animationId);
+        animationId = null;
+    }
+
+    elements.renderModal.style.display = 'flex';
+    elements.renderPercent.innerText = '0%';
+    elements.renderProgressbar.style.width = '0%';
+    elements.renderProgressbar.style.backgroundColor = '';
+    elements.renderModalTitle.innerText = 'Exact Server Render';
+    elements.renderModalSub.innerText = 'Launching the same canvas renderer in headless Chromium...';
+    elements.renderDetailsLog.innerText = 'Queueing render...';
+    elements.renderDetailsLog.style.color = '#ef4444';
+    elements.btnCancelRender.style.display = 'block';
+    elements.btnCancelRender.innerText = 'Cancel Export';
+    elements.btnDownloadExport.style.display = 'none';
+    if (elements.btnCloseModal) elements.btnCloseModal.style.display = 'none';
+    const spinner = elements.renderModal.querySelector('.spinner-ring');
+    if (spinner) spinner.classList.remove('stopped');
+
+    let pollInterval = null;
+    let cancelled = false;
+    elements.btnCancelRender.onclick = () => {
+        cancelled = true;
+        state.export.renderTaskId = null;
+        if (pollInterval) clearInterval(pollInterval);
+        elements.renderModal.style.display = 'none';
+    };
+
+    try {
+        const response = await fetch('/api/server-render-exact', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+        });
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok || data.error) {
+            throw new Error(data.error || 'Failed to start exact server render');
+        }
+
+        const taskFilename = data.task_id;
+        state.export.renderTaskId = taskFilename;
+        elements.renderModalSub.innerText = 'Rendering frames server-side and piping them into FFmpeg...';
+
+        pollInterval = setInterval(() => {
+            if (cancelled || state.export.renderTaskId !== taskFilename) {
+                clearInterval(pollInterval);
+                return;
+            }
+            fetch(`/api/status/${taskFilename}`)
+                .then(r => r.json())
+                .then(s => {
+                    const log = s.last_log_line || '';
+                    const frameMatch = log.match(/frame\s+(\d+)\/(\d+)\s+\((\d+)%\)/i);
+                    if (frameMatch) {
+                        const pct = Math.min(99, parseInt(frameMatch[3], 10));
+                        elements.renderPercent.innerText = `${pct}%`;
+                        elements.renderProgressbar.style.width = `${pct}%`;
+                    }
+                    if (log) elements.renderDetailsLog.innerText = log;
+
+                    if (s.status === 'completed') {
+                        clearInterval(pollInterval);
+                        elements.renderPercent.innerText = '100%';
+                        elements.renderProgressbar.style.width = '100%';
+                        elements.renderModalTitle.innerText = 'Export Complete!';
+                        elements.renderModalSub.innerText = 'Your exact server-rendered video is ready.';
+                        elements.renderDetailsLog.innerText = 'Rendering completed successfully!';
+                        if (spinner) spinner.classList.add('stopped');
+                        if (elements.btnCloseModal) {
+                            elements.btnCloseModal.style.display = 'block';
+                            elements.btnCloseModal.onclick = () => {
+                                elements.renderModal.style.display = 'none';
+                            };
+                        }
+                        elements.btnCancelRender.innerText = 'Close';
+                        elements.btnCancelRender.onclick = () => {
+                            elements.renderModal.style.display = 'none';
+                        };
+                        elements.btnDownloadExport.style.display = 'block';
+                        elements.btnDownloadExport.onclick = () => {
+                            const a = document.createElement('a');
+                            a.href = s.url;
+                            a.download = `${payload.export_name}.mp4`;
+                            a.click();
+                            elements.renderModal.style.display = 'none';
+                        };
+                    } else if (s.status === 'failed') {
+                        clearInterval(pollInterval);
+                        elements.renderPercent.innerText = 'ERR';
+                        elements.renderProgressbar.style.width = '100%';
+                        elements.renderProgressbar.style.backgroundColor = '#ef4444';
+                        elements.renderModalTitle.innerText = 'Export Failed';
+                        elements.renderModalSub.innerText = 'Exact server render could not complete.';
+                        elements.renderDetailsLog.innerText = `Error: ${s.error || 'Unknown error'}`;
+                        if (spinner) spinner.classList.add('stopped');
+                        if (elements.btnCloseModal) {
+                            elements.btnCloseModal.style.display = 'block';
+                            elements.btnCloseModal.onclick = () => {
+                                elements.renderModal.style.display = 'none';
+                            };
+                        }
+                        elements.btnCancelRender.innerText = 'Close';
+                        elements.btnCancelRender.onclick = () => {
+                            elements.renderModal.style.display = 'none';
+                        };
+                    }
+                })
+                .catch(err => {
+                    clearInterval(pollInterval);
+                    console.error('Exact render polling error:', err);
+                });
+        }, 1000);
+    } catch (e) {
+        console.error('Exact server export error:', e);
+        alert('Export error: ' + e.message);
+        elements.renderModal.style.display = 'none';
+    }
+}
 
 function radix2FFT(re, im) {
     const n = re.length;
@@ -251,6 +527,62 @@ function audioBufferToWav(buffer) {
 
 // ─── Main export ─────────────────────────────────────────────────────────────
 
+async function createDiskBackedSegmentTarget(webmLib, sessionId, segmentNumber) {
+    if (!navigator.storage || !navigator.storage.getDirectory || !webmLib.StreamTarget) {
+        return null;
+    }
+
+    const root = await navigator.storage.getDirectory();
+    const dir = await root.getDirectoryHandle('aurawave-render-segments', { create: true });
+    const filename = `${sessionId}_s${String(segmentNumber).padStart(4, '0')}.webm`;
+    const fileHandle = await dir.getFileHandle(filename, { create: true });
+    const writable = await fileHandle.createWritable();
+    let writeQueue = Promise.resolve();
+    let expectedPosition = 0;
+
+    const target = new webmLib.StreamTarget(
+        (data, position) => {
+            if (position !== expectedPosition) {
+                throw new Error(`Non-contiguous muxer write at byte ${position}; expected ${expectedPosition}`);
+            }
+            const chunk = data.slice();
+            expectedPosition += chunk.byteLength;
+            writeQueue = writeQueue.then(() => writable.write({
+                type: 'write',
+                position,
+                data: chunk
+            }));
+        },
+        null,
+        { chunked: true }
+    );
+
+    return {
+        target,
+        async upload() {
+            await writeQueue;
+            await writable.close();
+            const file = await fileHandle.getFile();
+            const uploadRes = await fetch(
+                `/api/remux-segment/${sessionId}/${segmentNumber}`,
+                {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/octet-stream' },
+                    body: file
+                }
+            );
+            if (!uploadRes.ok) {
+                const uploadData = await uploadRes.json().catch(() => ({}));
+                throw new Error(uploadData.error || `Segment ${segmentNumber + 1} upload failed`);
+            }
+        },
+        async cleanup() {
+            await writable.close().catch(() => {});
+            await dir.removeEntry(filename).catch(() => {});
+        }
+    };
+}
+
 async function runClientSideExport(previewMode = false) {
     // Guard: WebCodecs VideoEncoder requires Chrome/Edge 94+ in a secure context
     if (typeof VideoEncoder === 'undefined') {
@@ -369,6 +701,10 @@ async function runClientSideExport(previewMode = false) {
                                                        // state is flushed & freed often,
                                                        // keeping peak browser RAM low
     const FPS             = 30;
+    const ENCODER_FLUSH_FRAMES = FPS;
+    const ENCODER_QUEUE_LIMIT  = 1;
+    const CANVAS_PACE_FRAMES = 5;
+    const CANVAS_COOLDOWN_FRAMES = FPS;
     const totalFrames     = Math.ceil(duration * FPS);
     const numSegments     = Math.ceil(duration / SEGMENT_SECONDS);
     let   isCancelled     = false;
@@ -396,16 +732,21 @@ async function runClientSideExport(previewMode = false) {
             elements.renderModalSub.innerText   =
                 `Frames ${segFirstFrame}–${segLastFrame} (${segStartSec.toFixed(0)}s – ${segEndSec.toFixed(0)}s)`;
 
-            // Per-segment objects — go out of scope and are GC'd after upload
-            const segTarget = new ArrayBufferTarget();
-            const segMuxer  = new Muxer({
+            // Prefer OPFS-backed muxing: encoded WebM bytes are written to
+            // browser-managed disk storage as they arrive, then uploaded as a
+            // File. This keeps tab memory bounded without using request-stream
+            // fetch(), which can fail on localhost/HTTP1.
+            const diskSegment = await createDiskBackedSegmentTarget(webmLib, session_id, seg);
+            const segTarget = diskSegment ? diskSegment.target : new ArrayBufferTarget();
+            let segMuxer  = new Muxer({
                 target: segTarget,
                 video: { codec: 'V_VP9', width: videoWidth, height: videoHeight },
-                firstTimestampBehavior: 'offset'   // timestamps restart at 0 each segment
+                firstTimestampBehavior: 'offset',  // timestamps restart at 0 each segment
+                streaming: !!diskSegment
             });
 
             let encoderError = null;
-            const segEncoder = new VideoEncoder({
+            let segEncoder = new VideoEncoder({
                 output: (chunk, meta) => segMuxer.addVideoChunk(chunk, meta),
                 error:  e => { encoderError = e; }
             });
@@ -415,7 +756,14 @@ async function runClientSideExport(previewMode = false) {
                 height:      videoHeight,
                 bitrate:     4_000_000,
                 framerate:   FPS,
-                latencyMode: 'quality'
+                // 'realtime' makes the encoder drain and release each frame promptly.
+                // 'quality' lets VP9 buffer frames internally for lookahead, which
+                // holds them renderer-side until flush() and makes tab memory climb
+                // into the multi-GB range on longer songs (never releasing until the
+                // export finishes). This VP9 stream is only a throwaway intermediate —
+                // FFmpeg re-encodes it to H.264/CRF 18 on the server — so there is no
+                // final-quality cost to using realtime here.
+                latencyMode: 'realtime'
             });
 
             // ── Frame loop for this segment ───────────────────────────────
@@ -440,11 +788,18 @@ async function runClientSideExport(previewMode = false) {
                 });
                 frame.close();
 
-                // Drain the encoder queue every frame so at most ~2 VideoFrames
-                // (each ~8 MB off a 1080p canvas) are ever in flight. Keeps peak
-                // browser memory flat instead of letting the queue grow to 5.
-                while (segEncoder.encodeQueueSize > 2 && !isCancelled) {
+                // Drain the encoder queue every frame so at most one large
+                // canvas-backed VideoFrame is pending in JS-visible state.
+                while (segEncoder.encodeQueueSize > ENCODER_QUEUE_LIMIT && !isCancelled) {
                     await yieldToEventLoop();
+                }
+
+                // Some GPU encoders hold native lookahead buffers that
+                // encodeQueueSize does not fully expose, so force a drain once
+                // per second to bound native memory during long renders.
+                if ((f + 1) % ENCODER_FLUSH_FRAMES === 0) {
+                    await segEncoder.flush();
+                    if (encoderError) throw encoderError;
                 }
 
                 // Yield every frame so the GC/compositor can reclaim the canvas
@@ -452,6 +807,12 @@ async function runClientSideExport(previewMode = false) {
                 // next renderFrame(). Without this the renderer process memory
                 // climbs steadily on long renders until the tab OOM-crashes.
                 await yieldToEventLoop();
+                if ((f + 1) % CANVAS_PACE_FRAMES === 0) {
+                    await waitForBrowserCleanup(0);
+                }
+                if ((f + 1) % CANVAS_COOLDOWN_FRAMES === 0) {
+                    await waitForBrowserCleanup(20);
+                }
 
                 // Progress bar
                 const pct = Math.min(94, Math.floor((f / totalFrames) * 94));
@@ -466,33 +827,52 @@ async function runClientSideExport(previewMode = false) {
                             etaSec >= 60
                                 ? Math.floor(etaSec/60) + 'm ' + (etaSec%60) + 's'
                                 : etaSec + 's'
-                        }`;
+                        }${renderMemoryLabel()}`;
                 }
             }
 
-            if (isCancelled) break;
+            if (isCancelled) {
+                if (segEncoder) {
+                    try { segEncoder.close(); } catch (e) {}
+                    segEncoder = null;
+                }
+                segMuxer = null;
+                if (diskSegment) await diskSegment.cleanup();
+                break;
+            }
 
             // ── Flush, finalize, upload, discard ─────────────────────────
             elements.renderDetailsLog.innerText =
-                `Encoding segment ${seg + 1} / ${numSegments}...`;
+                `Encoding segment ${seg + 1} / ${numSegments}...${renderMemoryLabel()}`;
             elements.renderPercent.innerText = `${Math.min(94, Math.floor((segLastFrame / totalFrames) * 94))}%`;
 
             await segEncoder.flush();
             segEncoder.close();
+            segEncoder = null;
             segMuxer.finalize();
 
             elements.renderDetailsLog.innerText =
-                `Uploading segment ${seg + 1} / ${numSegments}...`;
+                `Uploading segment ${seg + 1} / ${numSegments}...${renderMemoryLabel()}`;
 
-            const uploadRes = await fetch(
-                `/api/remux-segment/${session_id}/${seg}`,
-                {
-                    method:  'POST',
-                    headers: { 'Content-Type': 'application/octet-stream' },
-                    body:    segTarget.buffer
+            if (diskSegment) {
+                await diskSegment.upload();
+                await diskSegment.cleanup();
+            } else {
+                const uploadRes = await fetch(
+                    `/api/remux-segment/${session_id}/${seg}`,
+                    {
+                        method:  'POST',
+                        headers: { 'Content-Type': 'application/octet-stream' },
+                        body:    segTarget.buffer
+                    }
+                );
+                if (!uploadRes.ok) {
+                    const uploadData = await uploadRes.json().catch(() => ({}));
+                    throw new Error(uploadData.error || `Segment ${seg + 1} upload failed`);
                 }
-            );
-            if (!uploadRes.ok) throw new Error(`Segment ${seg + 1} upload failed`);
+            }
+
+            segMuxer = null;
 
             // segTarget, segMuxer, segEncoder all go out of scope here. Yield a
             // couple of event-loop turns so the GC actually reclaims this
@@ -501,9 +881,14 @@ async function runClientSideExport(previewMode = false) {
             // segments' worth of memory can briefly coexist.
             await yieldToEventLoop();
             await yieldToEventLoop();
+            if (typeof releaseVisualizerScratchBuffers === 'function') {
+                releaseVisualizerScratchBuffers();
+            }
+            await waitForBrowserCleanup(25);
         }
 
         if (isCancelled) {
+            releaseExportRenderMemory();
             elements.renderModal.style.display = 'none';
             state.audio.analyser = originalAnalyser;
         if (state.audio.context && state.audio.context.state === 'suspended') state.audio.context.resume();
@@ -511,6 +896,7 @@ async function runClientSideExport(previewMode = false) {
             if (exportFgVideo) exportFgVideo.play().catch(() => {});
             return;
         }
+        releaseExportRenderMemory();
 
         // ── Server-side concat + audio mux ────────────────────────────────
         elements.renderPercent.innerText       = '96%';
@@ -524,6 +910,10 @@ async function runClientSideExport(previewMode = false) {
 
         const finalForm = new FormData();
         const suffix = previewMode ? '_preview' : '';
+        const ffmpegPreset = getFFmpegOutputPreset();
+        finalForm.append('ffmpeg_preset', ffmpegPreset.ffmpeg_preset);
+        finalForm.append('ffmpeg_crf', String(ffmpegPreset.ffmpeg_crf));
+        finalForm.append('ffmpeg_audio_bitrate', ffmpegPreset.ffmpeg_audio_bitrate);
         if (wasSynthActive) {
             finalForm.append('audio_upload', wavBlob, 'synth.wav');
             finalForm.append('export_name',  'synthetic_dream' + suffix);
@@ -542,6 +932,8 @@ async function runClientSideExport(previewMode = false) {
         );
         const finalData = await finalRes.json();
         if (finalData.error) throw new Error(finalData.error);
+        wavBlob = null;
+        exportBuffer = null;
 
         const taskFilename = finalData.task_id;
         state.export.renderTaskId = taskFilename;
@@ -648,6 +1040,7 @@ async function runClientSideExport(previewMode = false) {
         };
 
     } catch (e) {
+        releaseExportRenderMemory();
         console.error('Export error:', e);
         alert('Export error: ' + e.message);
         elements.renderModal.style.display = 'none';

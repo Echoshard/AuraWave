@@ -53,7 +53,55 @@
 
 .header-badges {
     display: flex;
+    align-items: center;
     gap: 0.75rem;
+}
+
+.template-tools {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+}
+
+.template-select {
+    min-width: 130px;
+    max-width: 170px;
+    height: 32px;
+    background: rgba(0, 0, 0, 0.35);
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    border-radius: 6px;
+    color: var(--text-secondary);
+    font-size: 0.75rem;
+    font-weight: 600;
+    padding: 0 0.5rem;
+    outline: none;
+}
+
+.template-btn {
+    height: 32px;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+    padding: 0 0.65rem;
+    background: rgba(16, 185, 129, 0.12);
+    border: 1px solid rgba(16, 185, 129, 0.28);
+    border-radius: 6px;
+    color: #86efac;
+    font-size: 0.75rem;
+    font-weight: 700;
+    cursor: pointer;
+    transition: var(--transition-smooth);
+}
+
+.template-btn:hover:not(:disabled) {
+    background: rgba(16, 185, 129, 0.2);
+    border-color: rgba(16, 185, 129, 0.45);
+}
+
+.template-btn:disabled,
+.template-select:disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
 }
 
 .badge {

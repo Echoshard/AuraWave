@@ -262,6 +262,12 @@ let _specBuf = null, _timeBuf = null;
 
 // === Post-processing scratch buffers (shared by Glitch / Heat / VHS) ===
 let fxScratchA = null, fxScratchB = null;
+function releaseVisualizerScratchBuffers() {
+    if (fxScratchA) { fxScratchA.width = 0; fxScratchA.height = 0; fxScratchA = null; }
+    if (fxScratchB) { fxScratchB.width = 0; fxScratchB.height = 0; fxScratchB = null; }
+    if (offscreenCanvas) { offscreenCanvas.width = 0; offscreenCanvas.height = 0; offscreenCanvas = null; }
+}
+
 function getFxScratch(which, w, h) {
     let c = which === 'a' ? fxScratchA : fxScratchB;
     if (!c) {
