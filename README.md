@@ -2,8 +2,7 @@
 
 AuraWave is a native desktop audio visualizer and video creator built with Python (`pywebview` + Flask) and HTML5 Canvas. It compiles viewport-accurate, high-fidelity MP4 videos (H.264 / AAC) up to 4K UHD with zero frame drops by piping frame streams directly from the canvas to a local FFmpeg compiler, completely bypassing browser memory leaks.
 
-
-<img width="1569" height="1213" alt="image" src="https://github.com/user-attachments/assets/2a56ac3c-dba7-4d20-9300-1cb8a73effc2" />
+<img width="1331" height="1056" alt="image" src="https://github.com/user-attachments/assets/23380a99-15f3-4d55-9fbe-ca2918651096" />
 
 ---
 
