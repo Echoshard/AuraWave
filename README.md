@@ -14,6 +14,28 @@ AuraWave is a native desktop audio visualizer and video creator built with Pytho
 - **Ambient Synth Engine**: Web Audio synthesizer with three preset soundscapes, pre-rendering offline into raw PCM audio buffers.
 - **Hybrid Remuxing**: Silent WebM output from the browser is sent to the Flask server, where FFmpeg remuxes it with original or synthesized audio into a standard H.264/AAC MP4.
 - **Style / FX Post-Processing**: Real-time canvas effects layered on top of the visualizer — glitch, heat distortion, VHS, CRT, and more.
+- **Saved Templates System**: Save and load custom visualizer settings (colors, typography, and FX profiles) locally to reuse your design presets across different audio tracks.
+- **Batch Render Queue**: Snapshot your entire visualizer configuration (audio track, background image/video, foreground cutouts, text, and FX parameters) into an in-memory queue. Swap between queued projects in one click to make adjustments, and render them all sequentially in a single batch.
+
+---
+
+## Saved Templates & Render Queue
+
+### Templates System
+Located in the header, the template controls allow you to save your visual presets:
+- **Save Template**: Prompts for a template name and saves all current visualizer, text, and post-processing properties.
+- **Load Template**: Instantly loads the selected template configurations into the active editor workspace.
+- **Auto-Sync**: Automatically updates visual parameters, typography sliders, and active FX toggles upon template loading.
+
+### Batch Render Queue (Q Feature)
+The Render Queue replaces system performance badges with actionable production controls:
+- **Add to Q**: Click this button in the header to snapshot your active workspace. This bundles visualizer styles, text options, post-processing FX, custom shapes, and background/foreground images or video layers.
+- **Queue (X)**: Displays the number of items currently in the render queue. Click this to open the **Queue Manager** modal.
+- **Queue Manager**:
+  - View all queued items with status indicators (**Queued**, **Rendering**, **Done**, or **Failed**).
+  - Click on any queued item row to instantly load it back into the active workspace (restoring audio tracks, buffers, and media layers) for editing.
+  - Delete individual queued items with the trash icon without affecting the rest of the queue.
+  - Click **Start Batch Render** to automatically process all queued items one after another. If running in the desktop app, the exports directory opens automatically when the batch finishes.
 
 ---
 
