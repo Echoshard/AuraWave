@@ -126,6 +126,7 @@ document.addEventListener('DOMContentLoaded', () => {
             }
         });
     }
+    initQueueSystem();
 });
 
 // ─── Cooley-Tukey radix-2 FFT ────────────────────────────────────────────────
@@ -636,7 +637,8 @@ async function createDiskBackedSegmentTarget(webmLib, sessionId, segmentNumber) 
     };
 }
 
-async function runClientSideExport(previewMode = false) {
+async function runClientSideExport(previewMode = false, queueItem = null) {
+    const isQueue = queueItem !== null;
     // Guard: WebCodecs VideoEncoder requires Chrome/Edge 94+ in a secure context
     if (typeof VideoEncoder === 'undefined') {
         alert(
@@ -657,7 +659,9 @@ async function runClientSideExport(previewMode = false) {
     const { Muxer, ArrayBufferTarget } = webmLib;
 
     // ── UI setup ────────────────────────────────────────────────────────────
-    elements.renderModal.style.display = 'flex';
+    if (!isQueue) {
+        elements.renderModal.style.display = 'flex';
+    }
     elements.renderPercent.innerText   = '0%';
     elements.renderProgressbar.style.width = '0%';
     elements.renderModalTitle.innerText = 'Initializing Render';
@@ -937,189 +941,204 @@ async function runClientSideExport(previewMode = false) {
             await waitForBrowserCleanup(25);
         }
 
-        state.export.isRecording = false;
+        if (!isQueue) {
+            state.export.isRecording = false;
+        }
 
         if (isCancelled) {
             releaseExportRenderMemory();
-            elements.renderModal.style.display = 'none';
-            state.audio.analyser = originalAnalyser;
-        if (state.audio.context && state.audio.context.state === 'suspended') state.audio.context.resume();
-            if (exportBgVideo) exportBgVideo.play().catch(() => {});
-            if (exportFgVideo) exportFgVideo.play().catch(() => {});
+            if (!isQueue) {
+                elements.renderModal.style.display = 'none';
+                state.audio.analyser = originalAnalyser;
+                if (state.audio.context && state.audio.context.state === 'suspended') state.audio.context.resume();
+                if (exportBgVideo) exportBgVideo.play().catch(() => {});
+                if (exportFgVideo) exportFgVideo.play().catch(() => {});
+            }
+            if (isQueue) return { status: 'cancelled' };
             return;
         }
         releaseExportRenderMemory();
 
         // ── Server-side concat + audio mux ────────────────────────────────
-        elements.renderPercent.innerText       = '96%';
-        elements.renderProgressbar.style.width = '96%';
-        elements.renderModalTitle.innerText    = 'Finalizing on Server...';
-        elements.renderModalSub.innerText      = 'FFmpeg concatenating segments and muxing audio...';
-        elements.renderDetailsLog.innerText    = 'Waiting for FFmpeg...';
+        const runMuxAndPoll = () => {
+            return new Promise(async (resolve, reject) => {
+                try {
+                    elements.renderPercent.innerText       = '96%';
+                    elements.renderProgressbar.style.width = '96%';
+                    elements.renderModalTitle.innerText    = 'Finalizing on Server...';
+                    elements.renderModalSub.innerText      = 'FFmpeg concatenating segments and muxing audio...';
+                    elements.renderDetailsLog.innerText    = 'Waiting for FFmpeg...';
 
-        state.audio.analyser = originalAnalyser;
-        if (state.audio.context && state.audio.context.state === 'suspended') state.audio.context.resume();
+                    state.audio.analyser = originalAnalyser;
 
-        const finalForm = new FormData();
-        const suffix = previewMode ? '_preview' : '';
-        const ffmpegPreset = getFFmpegOutputPreset();
-        finalForm.append('ffmpeg_preset', ffmpegPreset.ffmpeg_preset);
-        finalForm.append('ffmpeg_crf', String(ffmpegPreset.ffmpeg_crf));
-        finalForm.append('ffmpeg_audio_bitrate', ffmpegPreset.ffmpeg_audio_bitrate);
-        if (wasSynthActive) {
-            finalForm.append('audio_upload', wavBlob, 'synth.wav');
-            finalForm.append('export_name',  'synthetic_dream' + suffix);
-        } else {
-            const serverFilename = state.audio.audioUrl.split('/uploads/')[1];
-            finalForm.append('audio_file', serverFilename);
-            let baseName = (state.audio.fileName || 'visualizer');
-            const dot = baseName.lastIndexOf('.');
-            if (dot > 0) baseName = baseName.substring(0, dot);
-            finalForm.append('export_name', baseName + suffix);
-        }
-
-        const finalRes = await fetch(
-            `/api/remux-finalize/${session_id}`,
-            { method: 'POST', body: finalForm }
-        );
-        const finalData = await finalRes.json();
-        if (finalData.error) throw new Error(finalData.error);
-        wavBlob = null;
-        exportBuffer = null;
-
-        const taskFilename = finalData.task_id;
-        state.export.renderTaskId = taskFilename;
-
-        elements.renderModalTitle.innerText = 'Server Transcoding...';
-        elements.renderModalSub.innerText   = 'Re-encoding VP9 → H.264 with audio track...';
-
-        // ── Poll for completion ───────────────────────────────────────────
-        const pollInterval = setInterval(() => {
-            if (state.export.renderTaskId !== taskFilename) {
-                clearInterval(pollInterval);
-                return;
-            }
-            fetch(`/api/status/${taskFilename}`)
-                .then(r => r.json())
-                .then(s => {
-                    if (s.status === 'completed') {
-                        clearInterval(pollInterval);
-                        elements.renderPercent.innerText       = '100%';
-                        elements.renderProgressbar.style.width = '100%';
-                        elements.renderProgressbar.style.backgroundColor = '';
-                        elements.renderModalTitle.innerText = 'Export Complete!';
-                        elements.renderModalSub.innerText   =
-                            'Your video is encoded and ready to download.';
-                        elements.renderDetailsLog.innerText =
-                            'Rendering completed successfully!';
-                        if (spinner) spinner.classList.add('stopped');
-                        if (elements.btnCloseModal) {
-                            elements.btnCloseModal.style.display = 'block';
-                            elements.btnCloseModal.onclick = () => {
-                                elements.renderModal.style.display = 'none';
-                            };
-                        }
-                        elements.btnCancelRender.innerText  = 'Close';
-                        elements.btnCancelRender.onclick    = () => {
-                            elements.renderModal.style.display = 'none';
-                        };
-                        elements.btnDownloadExport.style.display = 'block';
-                        if (state.export.isDesktop) {
-                            elements.btnDownloadExport.innerText = 'Show in Folder';
-                        } else {
-                            elements.btnDownloadExport.innerText = 'Download Video';
-                        }
-                        elements.btnDownloadExport.onclick = () => {
-                            if (state.export.isDesktop && window.pywebview && window.pywebview.api) {
-                                window.pywebview.api.open_file_in_explorer(taskFilename);
-                                elements.renderModal.style.display = 'none';
-                                return;
-                            }
-                            const a = document.createElement('a');
-                            a.href     = s.url;
-                            if (wasSynthActive) {
-                                a.download = previewMode ? 'synthetic_dream_preview.mp4' : 'synthetic_dream.mp4';
-                            } else {
-                                const base = (state.audio.fileName || 'visualizer').split('.')[0];
-                                a.download = previewMode ? `${base}_preview.mp4` : `${base}_viz.mp4`;
-                            }
-                            a.click();
-                            elements.renderModal.style.display = 'none';
-                        };
-                        if (state.export.isDesktop && window.pywebview && window.pywebview.api) {
-                            window.pywebview.api.open_file_in_explorer(taskFilename);
-                        }
-                    } else if (s.status === 'failed') {
-                        clearInterval(pollInterval);
-                        elements.renderPercent.innerText               = 'ERR';
-                        elements.renderProgressbar.style.width         = '100%';
-                        elements.renderProgressbar.style.backgroundColor = '#ef4444';
-                        elements.renderModalTitle.innerText = 'Export Failed';
-                        elements.renderModalSub.innerText   =
-                            'An error occurred during FFmpeg transcoding.';
-                        elements.renderDetailsLog.innerText =
-                            `Error: ${s.error || 'Unknown error'}`;
-                        if (spinner) spinner.classList.add('stopped');
-                        if (elements.btnCloseModal) {
-                            elements.btnCloseModal.style.display = 'block';
-                            elements.btnCloseModal.onclick = () => {
-                                elements.renderModal.style.display = 'none';
-                            };
-                        }
-                        elements.btnCancelRender.innerText = 'Close';
-                        elements.btnCancelRender.onclick   = () => {
-                            elements.renderModal.style.display = 'none';
-                        };
+                    const finalForm = new FormData();
+                    const suffix = previewMode ? '_preview' : '';
+                    const ffmpegPreset = getFFmpegOutputPreset();
+                    finalForm.append('ffmpeg_preset', ffmpegPreset.ffmpeg_preset);
+                    finalForm.append('ffmpeg_crf', String(ffmpegPreset.ffmpeg_crf));
+                    finalForm.append('ffmpeg_audio_bitrate', ffmpegPreset.ffmpeg_audio_bitrate);
+                    if (wasSynthActive) {
+                        finalForm.append('audio_upload', wavBlob, 'synth.wav');
+                        finalForm.append('export_name',  'synthetic_dream' + suffix);
                     } else {
-                        // Still processing — parse FFmpeg progress line
-                        const log = s.last_log_line || '';
-                        const tMatch = log.match(/time=(\d+):(\d+):(\d+\.?\d*)/);
-                        const sMatch = log.match(/speed=\s*(\d+\.?\d*)x/);
-                        if (tMatch && sMatch) {
-                            const processed =
-                                parseInt(tMatch[1])*3600 +
-                                parseInt(tMatch[2])*60   +
-                                parseFloat(tMatch[3]);
-                            const speed  = parseFloat(sMatch[1]);
-                            const etaSec = speed > 0
-                                ? Math.round((duration - processed) / speed)
-                                : 0;
-                            elements.renderDetailsLog.innerText = etaSec > 0
-                                ? (etaSec >= 60
-                                    ? `ETA: ${Math.floor(etaSec/60)}m ${etaSec%60}s`
-                                    : `ETA: ${etaSec}s`)
-                                : 'Almost done...';
-                        }
+                        const serverFilename = state.audio.audioUrl.split('/uploads/')[1];
+                        finalForm.append('audio_file', serverFilename);
+                        let baseName = (state.audio.fileName || 'visualizer');
+                        const dot = baseName.lastIndexOf('.');
+                        if (dot > 0) baseName = baseName.substring(0, dot);
+                        finalForm.append('export_name', baseName + suffix);
                     }
-                })
-                .catch(err => {
-                    clearInterval(pollInterval);
-                    console.error('Polling error:', err);
-                });
-        }, 1500);
 
-        elements.btnCancelRender.onclick = () => {
-            state.export.renderTaskId = null;
-            clearInterval(pollInterval);
-            elements.renderModal.style.display = 'none';
+                    const finalRes = await fetch(
+                        `/api/remux-finalize/${session_id}`,
+                        { method: 'POST', body: finalForm }
+                    );
+                    const finalData = await finalRes.json();
+                    if (finalData.error) throw new Error(finalData.error);
+                    wavBlob = null;
+                    exportBuffer = null;
+
+                    const taskFilename = finalData.task_id;
+                    state.export.renderTaskId = taskFilename;
+
+                    elements.renderModalTitle.innerText = 'Server Transcoding...';
+                    elements.renderModalSub.innerText   = 'Re-encoding VP9 → H.264 with audio track...';
+
+                    // ── Poll for completion ───────────────────────────────────────────
+                    const pollInterval = setInterval(() => {
+                        if (state.export.renderTaskId !== taskFilename) {
+                            clearInterval(pollInterval);
+                            resolve({ status: 'cancelled' });
+                            return;
+                        }
+                        fetch(`/api/status/${taskFilename}`)
+                            .then(r => r.json())
+                            .then(s => {
+                                if (s.status === 'completed') {
+                                    clearInterval(pollInterval);
+                                    if (isQueue) {
+                                        resolve({ status: 'completed', task_id: taskFilename });
+                                    } else {
+                                        elements.renderPercent.innerText       = '100%';
+                                        elements.renderProgressbar.style.width = '100%';
+                                        elements.renderProgressbar.style.backgroundColor = '';
+                                        elements.renderModalTitle.innerText = 'Export Complete!';
+                                        elements.renderModalSub.innerText   = 'Your video is encoded and ready to download.';
+                                        elements.renderDetailsLog.innerText = 'Rendering completed successfully!';
+                                        if (spinner) spinner.classList.add('stopped');
+                                        if (elements.btnCloseModal) {
+                                            elements.btnCloseModal.style.display = 'block';
+                                            elements.btnCloseModal.onclick = () => { elements.renderModal.style.display = 'none'; };
+                                        }
+                                        elements.btnCancelRender.innerText  = 'Close';
+                                        elements.btnCancelRender.onclick    = () => { elements.renderModal.style.display = 'none'; };
+                                        elements.btnDownloadExport.style.display = 'block';
+                                        elements.btnDownloadExport.innerText = state.export.isDesktop ? 'Show in Folder' : 'Download Video';
+                                        elements.btnDownloadExport.onclick = () => {
+                                            if (state.export.isDesktop && window.pywebview && window.pywebview.api) {
+                                                window.pywebview.api.open_file_in_explorer(taskFilename);
+                                                elements.renderModal.style.display = 'none';
+                                                return;
+                                            }
+                                            const a = document.createElement('a');
+                                            a.href     = s.url;
+                                            if (wasSynthActive) {
+                                                a.download = previewMode ? 'synthetic_dream_preview.mp4' : 'synthetic_dream.mp4';
+                                            } else {
+                                                const base = (state.audio.fileName || 'visualizer').split('.')[0];
+                                                a.download = previewMode ? `${base}_preview.mp4` : `${base}_viz.mp4`;
+                                            }
+                                            a.click();
+                                            elements.renderModal.style.display = 'none';
+                                        };
+                                        if (state.export.isDesktop && window.pywebview && window.pywebview.api) {
+                                            window.pywebview.api.open_file_in_explorer(taskFilename);
+                                        }
+                                        resolve({ status: 'completed', task_id: taskFilename });
+                                    }
+                                } else if (s.status === 'failed') {
+                                    clearInterval(pollInterval);
+                                    if (isQueue) {
+                                        resolve({ status: 'failed', error: s.error || 'FFmpeg failed during server transcode' });
+                                    } else {
+                                        elements.renderPercent.innerText               = 'ERR';
+                                        elements.renderProgressbar.style.width         = '100%';
+                                        elements.renderProgressbar.style.backgroundColor = '#ef4444';
+                                        elements.renderModalTitle.innerText = 'Export Failed';
+                                        elements.renderModalSub.innerText   = 'An error occurred during FFmpeg transcoding.';
+                                        elements.renderDetailsLog.innerText = `Error: ${s.error || 'Unknown error'}`;
+                                        if (spinner) spinner.classList.add('stopped');
+                                        if (elements.btnCloseModal) {
+                                            elements.btnCloseModal.style.display = 'block';
+                                            elements.btnCloseModal.onclick = () => { elements.renderModal.style.display = 'none'; };
+                                        }
+                                        elements.btnCancelRender.innerText = 'Close';
+                                        elements.btnCancelRender.onclick   = () => { elements.renderModal.style.display = 'none'; };
+                                        resolve({ status: 'failed', error: s.error || 'Unknown error' });
+                                    }
+                                } else {
+                                    const log = s.last_log_line || '';
+                                    const tMatch = log.match(/time=(\d+):(\d+):(\d+\.?\d*)/);
+                                    const sMatch = log.match(/speed=\s*(\d+\.?\d*)x/);
+                                    if (tMatch && sMatch) {
+                                        const processed = parseInt(tMatch[1])*3600 + parseInt(tMatch[2])*60 + parseFloat(tMatch[3]);
+                                        const speed  = parseFloat(sMatch[1]);
+                                        const etaSec = speed > 0 ? Math.round((duration - processed) / speed) : 0;
+                                        elements.renderDetailsLog.innerText = etaSec > 0
+                                            ? (etaSec >= 60 ? `ETA: ${Math.floor(etaSec/60)}m ${etaSec%60}s` : `ETA: ${etaSec}s`)
+                                            : 'Almost done...';
+                                    }
+                                }
+                            })
+                            .catch(err => {
+                                clearInterval(pollInterval);
+                                reject(err);
+                            });
+                    }, 1500);
+
+                    elements.btnCancelRender.onclick = () => {
+                        state.export.renderTaskId = null;
+                        clearInterval(pollInterval);
+                        resolve({ status: 'cancelled' });
+                    };
+                } catch (err) {
+                    reject(err);
+                }
+            });
         };
 
+        if (isQueue) {
+            return await runMuxAndPoll();
+        } else {
+            runMuxAndPoll().catch(err => console.error('Remux error:', err));
+        }
+
     } catch (e) {
-        state.export.isRecording = false;
+        if (!isQueue) {
+            state.export.isRecording = false;
+        }
         releaseExportRenderMemory();
         console.error('Export error:', e);
+        if (isQueue) {
+            return { status: 'failed', error: e.message };
+        }
         alert('Export error: ' + e.message);
         elements.renderModal.style.display = 'none';
         state.audio.analyser = originalAnalyser;
-        if (state.audio.context && state.audio.context.state === 'suspended') state.audio.context.resume();
-        if (exportBgVideo) exportBgVideo.play().catch(() => {});
-        if (exportFgVideo) exportFgVideo.play().catch(() => {});
+        if (!isQueue) {
+            if (state.audio.context && state.audio.context.state === 'suspended') state.audio.context.resume();
+            if (exportBgVideo) exportBgVideo.play().catch(() => {});
+            if (exportFgVideo) exportFgVideo.play().catch(() => {});
+        }
     }
 }
 
-async function runDesktopNativeExport(previewMode = false) {
+async function runDesktopNativeExport(previewMode = false, queueItem = null) {
+    const isQueue = queueItem !== null;
     // ── UI setup ────────────────────────────────────────────────────────────
-    elements.renderModal.style.display = 'flex';
+    if (!isQueue) {
+        elements.renderModal.style.display = 'flex';
+    }
     elements.renderPercent.innerText   = '0%';
     elements.renderProgressbar.style.width = '0%';
     elements.renderModalTitle.innerText = 'Initializing Render';
@@ -1318,6 +1337,9 @@ async function runDesktopNativeExport(previewMode = false) {
 
         const finalizeRes = await window.pywebview.api.finalize_desktop_export();
         if (finalizeRes.status === 'completed') {
+            if (isQueue) {
+                return { status: 'completed', task_id: exportName + '.mp4' };
+            }
             elements.renderPercent.innerText       = '100%';
             elements.renderProgressbar.style.width = '100%';
             elements.renderModalTitle.innerText = 'Export Complete!';
@@ -1357,11 +1379,17 @@ async function runDesktopNativeExport(previewMode = false) {
                 window.pywebview.api.open_file_in_explorer(exportName + '.mp4');
             }
         } else {
+            if (isQueue) {
+                return { status: 'failed', error: finalizeRes.error || 'FFmpeg failed to finalize video' };
+            }
             throw new Error(finalizeRes.error || 'FFmpeg failed to finalize video');
         }
 
     } catch (e) {
         console.error('Desktop Export error:', e);
+        if (isQueue) {
+            return { status: isCancelled ? 'cancelled' : 'failed', error: e.message };
+        }
         if (!isCancelled) {
             alert('Desktop Export error: ' + e.message);
         }
@@ -1372,13 +1400,570 @@ async function runDesktopNativeExport(previewMode = false) {
         canvas.height = originalHeight;
         resizeCanvas();
 
-        state.export.isRecording = false;
+        if (!isQueue) {
+            state.export.isRecording = false;
+        }
         releaseExportRenderMemory();
         state.audio.analyser = originalAnalyser;
-        if (state.audio.context && state.audio.context.state === 'suspended') {
-            await state.audio.context.resume();
+        if (!isQueue) {
+            if (state.audio.context && state.audio.context.state === 'suspended') {
+                await state.audio.context.resume();
+            }
+            if (exportBgVideo) exportBgVideo.play().catch(() => {});
+            if (exportFgVideo) exportFgVideo.play().catch(() => {});
         }
-        if (exportBgVideo) exportBgVideo.play().catch(() => {});
-        if (exportFgVideo) exportFgVideo.play().catch(() => {});
     }
 }
+
+// ─── Render Queue System ─────────────────────────────────────────────────────
+let renderQueue = [];
+
+function initQueueSystem() {
+    const btnAddQueue = document.getElementById('btn-add-queue');
+    const btnViewQueue = document.getElementById('btn-view-queue');
+    const queueModal = document.getElementById('queue-modal');
+    const btnCloseQueue = document.getElementById('btn-close-queue');
+    const btnClearQueue = document.getElementById('btn-clear-queue');
+    const btnStartQueueRender = document.getElementById('btn-start-queue-render');
+
+    // Inject hover css dynamically
+    const styleSheet = document.createElement("style");
+    styleSheet.innerText = `
+      .queue-item-row:hover {
+          background: rgba(255, 255, 255, 0.07) !important;
+          border-color: rgba(99, 102, 241, 0.35) !important;
+          transform: translateY(-1px);
+          box-shadow: 0 4px 12px rgba(99, 102, 241, 0.05);
+      }
+    `;
+    document.head.appendChild(styleSheet);
+
+    if (btnAddQueue) {
+        btnAddQueue.addEventListener('click', () => {
+            if (!state.audio.synthActive && !state.audio.buffer) {
+                alert('Please load an audio track or enable the Built-in Synth Demo first!');
+                return;
+            }
+            
+            // Generate snapshot of settings and references
+            const visuals = cloneExportSettings(state.visuals);
+            [
+                'bgImage',
+                'bgVideo',
+                'fgImage',
+                'fgVideo',
+                'customShapeImage',
+                'particles'
+            ].forEach(key => delete visuals[key]);
+
+            const item = {
+                id: Date.now() + '_' + Math.random().toString(36).substr(2, 9),
+                name: state.audio.synthActive ? "Synth Ambient" : (state.audio.fileName || "Visualizer Project"),
+                visuals,
+                fx: cloneExportSettings(state.fx),
+                text: cloneExportSettings(state.text),
+                audio: {
+                    synthActive: state.audio.synthActive,
+                    fileName: state.audio.fileName,
+                    audioUrl: state.audio.audioUrl,
+                    buffer: state.audio.buffer,
+                    duration: state.audio.duration,
+                    file: state.audio.file
+                },
+                mediaAssets: {
+                    bgImage: state.visuals.bgImage,
+                    bgVideo: state.visuals.bgVideo,
+                    bgImageName: state.visuals.bgImageName,
+                    bgImageUrl: state.visuals.bgImageUrl,
+                    fgImage: state.visuals.fgImage,
+                    fgVideo: state.visuals.fgVideo,
+                    fgImageName: state.visuals.fgImageName,
+                    fgImageUrl: state.visuals.fgImageUrl,
+                    customShapeImage: state.visuals.customShapeImage,
+                    customShapeImageName: state.visuals.customShapeImageName,
+                    customShapeImageUrl: state.visuals.customShapeImageUrl
+                },
+                status: 'queued',
+                error: null
+            };
+
+            renderQueue.push(item);
+            updateQueueUI();
+            
+            // Visual feedback flash
+            if (btnViewQueue) {
+                btnViewQueue.style.transform = 'scale(1.08)';
+                btnViewQueue.style.borderColor = 'rgba(99, 102, 241, 0.6)';
+                setTimeout(() => {
+                    btnViewQueue.style.transform = '';
+                    btnViewQueue.style.borderColor = '';
+                }, 300);
+            }
+        });
+    }
+
+    if (btnViewQueue) {
+        btnViewQueue.addEventListener('click', () => {
+            if (queueModal) {
+                queueModal.style.display = 'flex';
+                updateQueueUI();
+            }
+        });
+    }
+
+    if (btnCloseQueue) {
+        btnCloseQueue.addEventListener('click', () => {
+            if (queueModal) {
+                queueModal.style.display = 'none';
+            }
+        });
+    }
+
+    if (queueModal) {
+        queueModal.addEventListener('click', (e) => {
+            if (e.target === queueModal) {
+                queueModal.style.display = 'none';
+            }
+        });
+    }
+
+    if (btnClearQueue) {
+        btnClearQueue.addEventListener('click', () => {
+            renderQueue = [];
+            updateQueueUI();
+        });
+    }
+
+    if (btnStartQueueRender) {
+        btnStartQueueRender.addEventListener('click', () => {
+            if (queueModal) {
+                queueModal.style.display = 'none';
+            }
+            runBatchQueueRender();
+        });
+    }
+}
+
+function updateQueueUI() {
+    const container = document.getElementById('queue-list-container');
+    const btnViewQueue = document.getElementById('btn-view-queue');
+    const btnClearQueue = document.getElementById('btn-clear-queue');
+    const btnStartQueueRender = document.getElementById('btn-start-queue-render');
+
+    if (btnViewQueue) {
+        btnViewQueue.innerHTML = `<i class="fa-solid fa-list-check"></i> Queue (${renderQueue.length})`;
+    }
+
+    if (!container) return;
+
+    if (renderQueue.length === 0) {
+        container.innerHTML = `
+            <div class="empty-queue-msg" style="text-align: center; color: var(--text-muted); padding: 2.5rem 1rem; border: 1px dashed rgba(255,255,255,0.08); border-radius: 8px; background: rgba(255,255,255,0.01);">
+                <i class="fa-solid fa-folder-open" style="font-size: 2rem; margin-bottom: 0.75rem; display: block; opacity: 0.4;"></i>
+                Queue is empty. Configure assets and settings on the left, then click <strong>Add to Q</strong>.
+            </div>
+        `;
+        if (btnClearQueue) btnClearQueue.disabled = true;
+        if (btnStartQueueRender) btnStartQueueRender.disabled = true;
+        return;
+    }
+
+    if (btnClearQueue) btnClearQueue.disabled = false;
+    
+    const hasUnfinished = renderQueue.some(item => item.status === 'queued' || item.status === 'failed');
+    if (btnStartQueueRender) btnStartQueueRender.disabled = !hasUnfinished;
+
+    container.innerHTML = '';
+    renderQueue.forEach(item => {
+        const row = document.createElement('div');
+        row.className = 'queue-item-row';
+        row.dataset.id = item.id;
+        row.style.cssText = `
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 0.75rem 1rem;
+            background: rgba(255, 255, 255, 0.03);
+            border: 1px solid rgba(255, 255, 255, 0.06);
+            border-radius: 8px;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            margin-bottom: 0.25rem;
+        `;
+
+        let statusBadge = '';
+        if (item.status === 'queued') {
+            statusBadge = `<span style="background: rgba(251, 191, 36, 0.1); border: 1px solid rgba(251, 191, 36, 0.25); color: #fbbf24; border-radius: 4px; padding: 0.15rem 0.4rem; font-size: 0.75rem; font-weight: 600;">Queued</span>`;
+        } else if (item.status === 'rendering') {
+            statusBadge = `<span style="background: rgba(59, 130, 246, 0.1); border: 1px solid rgba(59, 130, 246, 0.25); color: #60a5fa; border-radius: 4px; padding: 0.15rem 0.4rem; font-size: 0.75rem; font-weight: 600;"><i class="fa-solid fa-circle-notch fa-spin"></i> Rendering</span>`;
+        } else if (item.status === 'done') {
+            statusBadge = `<span style="background: rgba(16, 185, 129, 0.1); border: 1px solid rgba(16, 185, 129, 0.25); color: #34d399; border-radius: 4px; padding: 0.15rem 0.4rem; font-size: 0.75rem; font-weight: 600;">Done</span>`;
+        } else if (item.status === 'failed') {
+            const errTooltip = item.error ? ` title="${item.error}"` : '';
+            statusBadge = `<span style="background: rgba(239, 68, 68, 0.1); border: 1px solid rgba(239, 68, 68, 0.25); color: #f87171; border-radius: 4px; padding: 0.15rem 0.4rem; font-size: 0.75rem; font-weight: 600; cursor: help;"${errTooltip}>Failed</span>`;
+        }
+
+        row.innerHTML = `
+            <div style="display: flex; flex-direction: column; gap: 0.2rem; max-width: 65%;">
+                <span style="font-weight: 600; font-size: 0.85rem; color: var(--text-primary); text-overflow: ellipsis; overflow: hidden; white-space: nowrap;">${item.name}</span>
+                <span style="font-size: 0.72rem; color: var(--text-muted); text-transform: capitalize;">Style: ${item.visuals.style} · Ratio: ${item.visuals.aspectRatio || '16:9'}</span>
+            </div>
+            <div style="display: flex; align-items: center; gap: 0.75rem;">
+                ${statusBadge}
+                <button class="delete-queue-item-btn" style="background: none; border: none; color: rgba(255, 255, 255, 0.3); font-size: 0.9rem; cursor: pointer; transition: color 0.2s;" onmouseover="this.style.color='#f43f5e'" onmouseout="this.style.color='rgba(255,255,255,0.3)'">
+                    <i class="fa-solid fa-trash"></i>
+                </button>
+            </div>
+        `;
+
+        row.addEventListener('click', (e) => {
+            if (e.target.closest('.delete-queue-item-btn')) return;
+            loadQueueItemIntoState(item, false);
+            const modal = document.getElementById('queue-modal');
+            if (modal) modal.style.display = 'none';
+        });
+
+        const deleteBtn = row.querySelector('.delete-queue-item-btn');
+        if (deleteBtn) {
+            deleteBtn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                const idx = renderQueue.findIndex(q => q.id === item.id);
+                if (idx !== -1) {
+                    renderQueue.splice(idx, 1);
+                    updateQueueUI();
+                }
+            });
+        }
+
+        container.appendChild(row);
+    });
+}
+
+function syncUploadBannersToState() {
+    const audioDropzone = document.getElementById('audio-dropzone');
+    const audioBanner = document.getElementById('audio-banner');
+    const audioName = document.getElementById('audio-name');
+    const audioMeta = document.getElementById('audio-meta');
+    const audioInput = document.getElementById('audio-input');
+
+    const bgDropzone = document.getElementById('bg-dropzone');
+    const bgBanner = document.getElementById('bg-banner');
+    const bgName = document.getElementById('bg-name');
+    const bgMeta = document.getElementById('bg-meta');
+    const bgInput = document.getElementById('bg-input');
+
+    const fgDropzone = document.getElementById('fg-dropzone');
+    const fgBanner = document.getElementById('fg-banner');
+    const fgName = document.getElementById('fg-name');
+    const fgMeta = document.getElementById('fg-meta');
+    const fgInput = document.getElementById('fg-input');
+    const fgAdjustments = document.getElementById('fg-adjustments');
+
+    const customShapeDropzone = document.getElementById('custom-shape-dropzone');
+    const customShapeBanner = document.getElementById('custom-shape-banner');
+    const customShapeName = document.getElementById('custom-shape-name');
+    const customShapeInput = document.getElementById('custom-shape-input');
+
+    // 1. Audio Banner
+    if (state.audio.synthActive) {
+        if (audioDropzone) audioDropzone.style.display = 'flex';
+        if (audioBanner) audioBanner.style.display = 'none';
+        if (audioInput) audioInput.value = '';
+    } else if (state.audio.buffer) {
+        if (audioDropzone) audioDropzone.style.display = 'none';
+        if (audioBanner) audioBanner.style.display = 'flex';
+        if (audioName) audioName.innerText = state.audio.fileName || 'track.mp3';
+        if (audioMeta) audioMeta.innerText = `${formatTime(state.audio.duration)} | ${state.audio.buffer.sampleRate || 44100} Hz`;
+    } else {
+        if (audioDropzone) audioDropzone.style.display = 'flex';
+        if (audioBanner) audioBanner.style.display = 'none';
+        if (audioInput) audioInput.value = '';
+    }
+
+    // 2. Background Banner
+    if (state.visuals.bgImage || state.visuals.bgVideo) {
+        if (bgDropzone) bgDropzone.style.display = 'none';
+        if (bgBanner) bgBanner.style.display = 'flex';
+        if (bgName) bgName.innerText = state.visuals.bgImageName || 'background.png';
+        if (bgMeta) {
+            if (state.visuals.bgVideo) {
+                bgMeta.innerText = `Video: ${state.visuals.bgVideo.videoWidth || 1920} x ${state.visuals.bgVideo.videoHeight || 1080}`;
+            } else {
+                bgMeta.innerText = `${state.visuals.bgImage.naturalWidth || 1920} x ${state.visuals.bgImage.naturalHeight || 1080}`;
+            }
+        }
+    } else {
+        if (bgDropzone) bgDropzone.style.display = 'flex';
+        if (bgBanner) bgBanner.style.display = 'none';
+        if (bgInput) bgInput.value = '';
+    }
+
+    // 3. Foreground Banner
+    if (state.visuals.fgImage || state.visuals.fgVideo) {
+        if (fgDropzone) fgDropzone.style.display = 'none';
+        if (fgBanner) fgBanner.style.display = 'flex';
+        if (fgName) fgName.innerText = state.visuals.fgImageName || 'foreground.png';
+        if (fgMeta) {
+            if (state.visuals.fgVideo) {
+                fgMeta.innerText = `Video: ${state.visuals.fgVideo.videoWidth || 1920} x ${state.visuals.fgVideo.videoHeight || 1080}`;
+            } else {
+                fgMeta.innerText = `${state.visuals.fgImage.naturalWidth || 1920} x ${state.visuals.fgImage.naturalHeight || 1080}`;
+            }
+        }
+        if (fgAdjustments) fgAdjustments.style.display = 'block';
+    } else {
+        if (fgDropzone) fgDropzone.style.display = 'flex';
+        if (fgBanner) fgBanner.style.display = 'none';
+        if (fgInput) fgInput.value = '';
+        if (fgAdjustments) fgAdjustments.style.display = 'none';
+    }
+
+    // 4. Custom Shape Banner
+    if (state.visuals.customShapeImage) {
+        if (customShapeDropzone) customShapeDropzone.style.display = 'none';
+        if (customShapeBanner) customShapeBanner.style.display = 'flex';
+        if (customShapeName) customShapeName.innerText = state.visuals.customShapeImageName || 'shape.png';
+    } else {
+        if (customShapeDropzone) customShapeDropzone.style.display = 'flex';
+        if (customShapeBanner) customShapeBanner.style.display = 'none';
+        if (customShapeInput) customShapeInput.value = '';
+    }
+}
+
+function loadQueueItemIntoState(item, isForRendering = false) {
+    // Stop currently playing audio/video
+    stopAudio();
+    if (state.visuals.bgVideo) { try { state.visuals.bgVideo.pause(); } catch(e){} }
+    if (state.visuals.fgVideo) { try { state.visuals.fgVideo.pause(); } catch(e){} }
+
+    // Merge settings
+    state.visuals = { ...state.visuals, ...cloneExportSettings(item.visuals) };
+    state.fx = { ...state.fx, ...cloneExportSettings(item.fx) };
+    state.text = { ...state.text, ...cloneExportSettings(item.text) };
+
+    // Restore references
+    state.audio.synthActive = item.audio.synthActive;
+    state.audio.fileName = item.audio.fileName;
+    state.audio.audioUrl = item.audio.audioUrl;
+    state.audio.buffer = item.audio.buffer;
+    state.audio.duration = item.audio.duration;
+    state.audio.file = item.audio.file;
+
+    state.visuals.bgImage = item.mediaAssets.bgImage;
+    state.visuals.bgVideo = item.mediaAssets.bgVideo;
+    state.visuals.bgImageName = item.mediaAssets.bgImageName;
+    state.visuals.bgImageUrl = item.mediaAssets.bgImageUrl;
+
+    state.visuals.fgImage = item.mediaAssets.fgImage;
+    state.visuals.fgVideo = item.mediaAssets.fgVideo;
+    state.visuals.fgImageName = item.mediaAssets.fgImageName;
+    state.visuals.fgImageUrl = item.mediaAssets.fgImageUrl;
+
+    state.visuals.customShapeImage = item.mediaAssets.customShapeImage;
+    state.visuals.customShapeImageName = item.mediaAssets.customShapeImageName;
+    state.visuals.customShapeImageUrl = item.mediaAssets.customShapeImageUrl;
+
+    // Resync DOM to State
+    syncDOMToState();
+    syncUploadBannersToState();
+
+    // Setup base canvas particles and sizes
+    setupParticles();
+    resizeCanvas();
+
+    if (!isForRendering) {
+        resetPlayerUI();
+        if (!state.audio.synthActive && state.audio.buffer) {
+            playAudio();
+        } else if (state.audio.synthActive) {
+            if (typeof toggleSynthDemo === 'function') {
+                toggleSynthDemo(true);
+            }
+        }
+    } else {
+        state.export.isRecording = true;
+        state.audio.isPlaying = false;
+    }
+
+    triggerRedraw();
+}
+
+async function runBatchQueueRender() {
+    const unfinished = renderQueue.filter(item => item.status === 'queued' || item.status === 'failed');
+    if (unfinished.length === 0) {
+        alert('No queued items to render!');
+        return;
+    }
+
+    // Backup current active workspace settings/assets
+    const sessionBackup = {
+        visuals: cloneExportSettings(state.visuals),
+        fx: cloneExportSettings(state.fx),
+        text: cloneExportSettings(state.text),
+        audio: {
+            synthActive: state.audio.synthActive,
+            fileName: state.audio.fileName,
+            audioUrl: state.audio.audioUrl,
+            buffer: state.audio.buffer,
+            duration: state.audio.duration,
+            file: state.audio.file
+        },
+        mediaAssets: {
+            bgImage: state.visuals.bgImage,
+            bgVideo: state.visuals.bgVideo,
+            bgImageName: state.visuals.bgImageName,
+            bgImageUrl: state.visuals.bgImageUrl,
+            fgImage: state.visuals.fgImage,
+            fgVideo: state.visuals.fgVideo,
+            fgImageName: state.visuals.fgImageName,
+            fgImageUrl: state.visuals.fgImageUrl,
+            customShapeImage: state.visuals.customShapeImage,
+            customShapeImageName: state.visuals.customShapeImageName,
+            customShapeImageUrl: state.visuals.customShapeImageUrl
+        }
+    };
+    [
+        'bgImage', 'bgVideo', 'fgImage', 'fgVideo', 'customShapeImage', 'particles'
+    ].forEach(key => delete sessionBackup.visuals[key]);
+
+    // Open progress modal
+    elements.renderModal.style.display = 'flex';
+    elements.renderPercent.innerText = '0%';
+    elements.renderProgressbar.style.width = '0%';
+    elements.renderModalTitle.innerText = 'Initializing Batch Render';
+    elements.renderModalSub.innerText = `Preparing to render ${unfinished.length} visualizers...`;
+    elements.renderDetailsLog.innerText = 'Initializing queue...';
+    elements.renderDetailsLog.style.color = '';
+    elements.btnCancelRender.style.display = 'block';
+    elements.btnCancelRender.innerText = 'Cancel Batch';
+    elements.btnDownloadExport.style.display = 'none';
+    if (elements.btnCloseModal) elements.btnCloseModal.style.display = 'none';
+    const spinner = elements.renderModal.querySelector('.spinner-ring');
+    if (spinner) spinner.classList.remove('stopped');
+
+    let isBatchCancelled = false;
+    elements.btnCancelRender.onclick = async () => {
+        isBatchCancelled = true;
+        elements.renderDetailsLog.innerText = 'Cancelling batch, completing current task...';
+        if (state.export.renderTaskId) {
+            fetch(`/api/status/${state.export.renderTaskId}`).then(r => r.json()).then(s => {
+                if (s.status === 'processing') {
+                    fetch(`/api/cancel/${state.export.renderTaskId}`, { method: 'POST' }).catch(() => {});
+                }
+            }).catch(() => {});
+        }
+        if (state.export.isDesktop && window.pywebview && window.pywebview.api) {
+            await window.pywebview.api.cancel_desktop_export().catch(() => {});
+        }
+    };
+
+    state.export.isRecording = true;
+    if (state.audio.context && state.audio.context.state === 'running') {
+        await state.audio.context.suspend();
+    }
+
+    for (let i = 0; i < unfinished.length; i++) {
+        if (isBatchCancelled) break;
+
+        const item = unfinished[i];
+        item.status = 'rendering';
+        item.error = null;
+        updateQueueUI();
+
+        elements.renderModalTitle.innerText = `Batch rendering (${i + 1} / ${unfinished.length})`;
+        elements.renderModalSub.innerText = `Processing: ${item.name}...`;
+        elements.renderDetailsLog.innerText = 'Loading settings...';
+        elements.renderProgressbar.style.width = '0%';
+        elements.renderPercent.innerText = '0%';
+
+        loadQueueItemIntoState(item, true);
+
+        let exportPromise;
+        if (state.export.isDesktop && window.pywebview && window.pywebview.api) {
+            exportPromise = runDesktopNativeExport(false, item);
+        } else {
+            exportPromise = runClientSideExport(false, item);
+        }
+
+        try {
+            const result = await exportPromise;
+            if (result && result.status === 'completed') {
+                item.status = 'done';
+                if (state.export.method === 'client' && !state.export.isDesktop && result.task_id) {
+                    const a = document.createElement('a');
+                    a.href = `/exports/${result.task_id}`;
+                    a.download = result.task_id;
+                    a.click();
+                }
+            } else if (result && result.status === 'cancelled') {
+                item.status = 'queued';
+                isBatchCancelled = true;
+            } else {
+                item.status = 'failed';
+                item.error = result ? result.error : 'Unknown render failure';
+            }
+        } catch (err) {
+            item.status = 'failed';
+            item.error = err.message || err || 'Unknown exception';
+        }
+
+        updateQueueUI();
+    }
+
+    loadQueueItemIntoState(sessionBackup, false);
+
+    if (spinner) spinner.classList.add('stopped');
+    
+    if (isBatchCancelled) {
+        elements.renderPercent.innerText = 'ESC';
+        elements.renderProgressbar.style.width = '100%';
+        elements.renderProgressbar.style.backgroundColor = '#f43f5e';
+        elements.renderModalTitle.innerText = 'Batch Export Cancelled';
+        elements.renderModalSub.innerText = 'The batch render was cancelled by the user.';
+        elements.renderDetailsLog.innerText = 'Some videos may not have finished rendering.';
+        
+        elements.btnCancelRender.innerText = 'Close';
+        elements.btnCancelRender.onclick = () => {
+            elements.renderModal.style.display = 'none';
+        };
+        if (elements.btnCloseModal) {
+            elements.btnCloseModal.style.display = 'block';
+            elements.btnCloseModal.onclick = () => {
+                elements.renderModal.style.display = 'none';
+            };
+        }
+    } else {
+        const succeeded = unfinished.filter(q => q.status === 'done').length;
+        const failed = unfinished.filter(q => q.status === 'failed').length;
+
+        elements.renderPercent.innerText = '100%';
+        elements.renderProgressbar.style.width = '100%';
+        elements.renderProgressbar.style.backgroundColor = failed > 0 ? '#fbbf24' : '';
+        elements.renderModalTitle.innerText = 'Batch Export Complete!';
+        elements.renderModalSub.innerText = `Successfully rendered ${succeeded} of ${unfinished.length} videos.`;
+        elements.renderDetailsLog.innerText = failed > 0 ? `Finished with ${failed} failures.` : 'All videos rendered successfully!';
+
+        elements.btnCancelRender.innerText = 'Close';
+        elements.btnCancelRender.onclick = () => {
+            elements.renderModal.style.display = 'none';
+        };
+        if (elements.btnCloseModal) {
+            elements.btnCloseModal.style.display = 'block';
+            elements.btnCloseModal.onclick = () => {
+                elements.renderModal.style.display = 'none';
+            };
+        }
+
+        if (succeeded > 0 && state.export.isDesktop) {
+            elements.btnDownloadExport.style.display = 'block';
+            elements.btnDownloadExport.innerText = 'Show in Folder';
+            elements.btnDownloadExport.onclick = () => {
+                if (window.pywebview && window.pywebview.api) {
+                    window.pywebview.api.open_file_in_explorer();
+                    elements.renderModal.style.display = 'none';
+                }
+            };
+        }
+    }
+}
+

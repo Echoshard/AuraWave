@@ -122,6 +122,7 @@ const state = {
         glitchFrequency: 0.5,
         glitchRgb: 8,
         glitchSlices: 14,
+        glitchSpeed: 1.0,
         heat: false,
         heatIntensity: 1.0,
         heatSpeed: 1.0,
@@ -373,6 +374,8 @@ document.addEventListener('DOMContentLoaded', () => {
     elements.glitchRgbVal = document.getElementById('glitch-rgb-val');
     elements.fxGlitchSlices = document.getElementById('fx-glitch-slices');
     elements.glitchSlicesVal = document.getElementById('glitch-slices-val');
+    elements.fxGlitchSpeed = document.getElementById('fx-glitch-speed');
+    elements.glitchSpeedVal = document.getElementById('glitch-speed-val');
 
     // Heat Shimmer
     elements.fxHeat = document.getElementById('fx-heat');
@@ -1279,6 +1282,14 @@ document.addEventListener('DOMContentLoaded', () => {
             const val = parseInt(e.target.value, 10);
             state.fx.glitchSlices = val;
             elements.glitchSlicesVal.innerText = `${val}`;
+            triggerRedraw();
+        });
+    }
+    if (elements.fxGlitchSpeed) {
+        elements.fxGlitchSpeed.addEventListener('input', (e) => {
+            const val = parseFloat(e.target.value);
+            state.fx.glitchSpeed = val;
+            elements.glitchSpeedVal.innerText = `${val.toFixed(1)}x`;
             triggerRedraw();
         });
     }
@@ -2415,6 +2426,12 @@ function syncDOMToState() {
     if (elements.fxGlitchSlices) {
         elements.fxGlitchSlices.value = state.fx.glitchSlices;
         elements.glitchSlicesVal.innerText = `${state.fx.glitchSlices}`;
+    }
+    if (elements.fxGlitchSpeed) {
+        elements.fxGlitchSpeed.value = state.fx.glitchSpeed !== undefined ? state.fx.glitchSpeed : 1.0;
+        if (elements.glitchSpeedVal) {
+            elements.glitchSpeedVal.innerText = `${(state.fx.glitchSpeed !== undefined ? state.fx.glitchSpeed : 1.0).toFixed(1)}x`;
+        }
     }
 
     // Heat Shimmer sync

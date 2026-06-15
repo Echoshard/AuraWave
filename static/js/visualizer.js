@@ -673,6 +673,12 @@ function resizeCanvas(customWidth = null, customHeight = null) {
     setupParticles(); // Rescatter particles for new boundaries
 }
 
+// Persistent glitch state variables for speed-controlled randomization
+let lastGlitchTime = 0;
+let lastGlitchBurst = false;
+let lastGlitchSlices = [];
+let lastGlitchShift = 0;
+
 // === Real-Time Canvas Render Loop ===
 function renderFrame() {
     const canvas = elements.visualizerCanvas;
@@ -2010,7 +2016,26 @@ function renderFrame() {
         const freq = state.fx.glitchFrequency !== undefined ? state.fx.glitchFrequency : 0.5;
         const rgb = state.fx.glitchRgb !== undefined ? state.fx.glitchRgb : 8;
         const sliceMax = state.fx.glitchSlices !== undefined ? state.fx.glitchSlices : 14;
-        const burst = Math.random() < (0.12 + freq * 0.7);
+        const speed = Math.max(0.01, state.fx.glitchSpeed !== undefined ? state.fx.glitchSpeed : 1.0);
+        const interval = 0.15 / speed; // baseline rate is 150ms per state change at 1.0x
+        const t = (state.audio.currentTime || Date.now() * 0.001);
+
+        if (t - lastGlitchTime > interval || t < lastGlitchTime) {
+            lastGlitchTime = t;
+            lastGlitchBurst = Math.random() < freq;
+            lastGlitchSlices = [];
+            if (lastGlitchBurst && sliceMax >= 2) {
+                const sliceCount = 2 + Math.floor(Math.random() * (sliceMax - 1));
+                for (let i = 0; i < sliceCount; i++) {
+                    lastGlitchSlices.push({
+                        sy: Math.random() * height,
+                        sh: 4 + Math.random() * (height * 0.10),
+                        dx: (Math.random() - 0.5) * 80 * intensity
+                    });
+                }
+            }
+            lastGlitchShift = rgb * (lastGlitchBurst ? 1.4 : 0.3 * freq) * intensity;
+        }
 
         // Freeze the current frame into working buffer A
         const work = getFxScratch('a', width, height);
@@ -2019,25 +2044,20 @@ function renderFrame() {
         work.drawImage(canvas, 0, 0);
 
         // Random horizontal slice tears during a corruption burst
-        if (burst && sliceMax >= 2) {
+        if (lastGlitchBurst && lastGlitchSlices.length > 0) {
             const frozen = getFxScratch('b', width, height);
             frozen.globalCompositeOperation = 'source-over';
             frozen.clearRect(0, 0, width, height);
             frozen.drawImage(canvas, 0, 0);
-            const sliceCount = 2 + Math.floor(Math.random() * (sliceMax - 1));
-            for (let i = 0; i < sliceCount; i++) {
-                const sy = Math.random() * height;
-                const sh = 4 + Math.random() * (height * 0.10);
-                const dx = (Math.random() - 0.5) * 80 * intensity;
-                work.drawImage(frozen.canvas, 0, sy, width, sh, dx, sy, width, sh);
+            for (let i = 0; i < lastGlitchSlices.length; i++) {
+                const slice = lastGlitchSlices[i];
+                work.drawImage(frozen.canvas, 0, slice.sy, width, slice.sh, slice.dx, slice.sy, width, slice.sh);
             }
         }
 
-        // RGB channel split (amplified during a burst). Note compositeChromaSplit
-        // uses scratch 'b' internally, which is free to reuse at this point.
-        const shift = rgb * (burst ? 1.4 : 0.45) * intensity;
-        if (shift >= 1) {
-            compositeChromaSplit(ctx, work.canvas, width, height, shift, 0, -shift);
+        // RGB channel split
+        if (lastGlitchShift >= 1) {
+            compositeChromaSplit(ctx, work.canvas, width, height, lastGlitchShift, 0, -lastGlitchShift);
         } else {
             ctx.clearRect(0, 0, width, height);
             ctx.drawImage(work.canvas, 0, 0);

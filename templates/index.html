@@ -47,20 +47,12 @@
                         <span>Load</span>
                     </button>
                 </div>
-                <span class="badge" id="badge-gpu" style="display: none;">
-                    <i class="fa-solid fa-bolt"></i> GPU Accelerated
-                    <span class="tooltip">
-                        <strong>WebCodecs GPU Encoder</strong>
-                        Uses the browser's hardware-accelerated WebCodecs API (VideoEncoder) to compile frames at GPU speeds.
-                    </span>
-                </span>
-                <span class="badge secondary" id="badge-ffmpeg">
-                    <i class="fa-solid fa-server"></i> Server-side FFmpeg
-                    <span class="tooltip">
-                        <strong>Server Render Video - FFmpeg H.264 / AAC</strong>
-                        Your visualizer is built using high-performance server-side FFmpeg compilers. This encodes a standard-compliant, highly compatible H.264 MP4 with AAC audio at visually lossless quality, guaranteed to play flawlessly on Windows Media Player, macOS, iOS, Android, and social media.
-                    </span>
-                </span>
+                <button class="template-btn" id="btn-add-queue" type="button" title="Add current settings to Render Queue" style="background: rgba(168, 85, 247, 0.12); border: 1px solid rgba(168, 85, 247, 0.25); color: #c084fc; border-radius: 6px; padding: 0.45rem 0.75rem; font-size: 0.82rem; font-weight: 600; cursor: pointer; display: flex; align-items: center; gap: 0.35rem; transition: var(--transition-smooth);">
+                    <i class="fa-solid fa-folder-plus"></i> Add to Q
+                </button>
+                <button class="template-btn" id="btn-view-queue" type="button" title="View Render Queue" style="background: rgba(99, 102, 241, 0.12); border: 1px solid rgba(99, 102, 241, 0.25); color: #a5b4fc; border-radius: 6px; padding: 0.45rem 0.75rem; font-size: 0.82rem; font-weight: 600; cursor: pointer; display: flex; align-items: center; gap: 0.35rem; transition: var(--transition-smooth);">
+                    <i class="fa-solid fa-list-check"></i> Queue (0)
+                </button>
             </div>
         </header>
 
@@ -993,12 +985,19 @@
                                     </label>
                                     <input type="range" id="fx-glitch-rgb" min="0" max="30" step="1" value="8" class="slider-input">
                                 </div>
-                                <div class="synth-control-row">
+                                <div class="synth-control-row" style="margin-bottom: 0.75rem;">
                                     <label class="setting-label-row" style="width: 100%;">
                                         <span>Max Slice Tears</span>
                                         <span class="val-display" id="glitch-slices-val">14</span>
                                     </label>
                                     <input type="range" id="fx-glitch-slices" min="2" max="30" step="1" value="14" class="slider-input">
+                                </div>
+                                <div class="synth-control-row">
+                                    <label class="setting-label-row" style="width: 100%;">
+                                        <span>Glitch Speed</span>
+                                        <span class="val-display" id="glitch-speed-val">1.0x</span>
+                                    </label>
+                                    <input type="range" id="fx-glitch-speed" min="0.1" max="4.0" step="0.1" value="1.0" class="slider-input">
                                 </div>
                             </div>
                         </div>
@@ -1519,6 +1518,30 @@
             <button class="modal-success-btn" id="btn-download-export" style="display: none;">
                 <i class="fa-solid fa-download"></i> Download Video File
             </button>
+        </div>
+    </div>
+
+    <!-- Glowing Queue Manager Modal Overlay -->
+    <div class="modal-overlay" id="queue-modal" style="display: none;">
+        <div class="render-modal-card glass-card" style="position: relative; width: 520px; max-width: 90%; max-height: 85vh; display: flex; flex-direction: column;">
+            <button class="modal-close-btn" id="btn-close-queue" style="position: absolute; top: 1rem; right: 1.2rem; background: none; border: none; color: var(--text-muted); font-size: 1.5rem; cursor: pointer; transition: var(--transition-smooth); line-height: 1;">&times;</button>
+            <h3 class="modal-title" style="margin-bottom: 0.25rem;"><i class="fa-solid fa-list-check" style="color: var(--accent-cyan); margin-right: 0.5rem;"></i> Render Queue</h3>
+            <p class="modal-subtitle" style="margin-bottom: 1.25rem;">Batch render multiple configured videos one after another.</p>
+            
+            <div id="queue-list-container" style="flex: 1; width: 100%; overflow-y: auto; margin-bottom: 1.5rem; padding-right: 0.25rem; display: flex; flex-direction: column; gap: 0.75rem; min-height: 150px; max-height: 40vh;">
+                <!-- Dynamically populated queue items -->
+                <div class="empty-queue-msg" style="text-align: center; color: var(--text-muted); padding: 2.5rem 1rem; border: 1px dashed rgba(255,255,255,0.08); border-radius: 8px; background: rgba(255,255,255,0.01);">
+                    <i class="fa-solid fa-folder-open" style="font-size: 2rem; margin-bottom: 0.75rem; display: block; opacity: 0.4;"></i>
+                    Queue is empty. Configure assets and settings on the left, then click <strong>Add to Q</strong>.
+                </div>
+            </div>
+
+            <div class="queue-actions" style="display: flex; gap: 0.75rem; width: 100%;">
+                <button class="modal-cancel-btn" id="btn-clear-queue" style="flex: 1; border-color: rgba(244, 63, 94, 0.2); color: var(--text-secondary);" disabled>Clear Queue</button>
+                <button class="modal-success-btn" id="btn-start-queue-render" style="flex: 2; justify-content: center; background: linear-gradient(135deg, var(--accent-cyan), var(--primary)); box-shadow: 0 4px 15px rgba(99,102,241,0.25);" disabled>
+                    <i class="fa-solid fa-circle-play"></i> Start Batch Render
+                </button>
+            </div>
         </div>
     </div>
 
