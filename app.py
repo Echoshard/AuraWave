@@ -1,11 +1,13 @@
 import os
 import uuid
+import shutil
 import subprocess
 import logging
 import threading
+import json
+import base64
 import time
 import importlib.util
-import shutil
 import sys
 from flask import Flask, render_template, request, jsonify, send_from_directory
 from werkzeug.utils import secure_filename, safe_join
@@ -30,6 +32,7 @@ app = Flask(__name__)
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 UPLOAD_FOLDER = os.path.join(BASE_DIR, 'uploads')
 EXPORT_FOLDER = os.path.join(BASE_DIR, 'exports')
+TEMPLATE_FOLDER = os.path.join(BASE_DIR, 'templates', 'user')
 SUBTITLE_EXPORT_FOLDER = os.path.join(EXPORT_FOLDER, 'subtitles')
 ALLOWED_IMAGE_EXTENSIONS = {'png', 'jpg', 'jpeg', 'webp', 'mp4', 'webm', 'mov'}
 ALLOWED_AUDIO_EXTENSIONS = {'mp3', 'wav', 'ogg', 'm4a', 'flac'}
@@ -37,7 +40,18 @@ ALLOWED_AUDIO_EXTENSIONS = {'mp3', 'wav', 'ogg', 'm4a', 'flac'}
 # Ensure folders exist
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 os.makedirs(EXPORT_FOLDER, exist_ok=True)
+os.makedirs(TEMPLATE_FOLDER, exist_ok=True)
 os.makedirs(SUBTITLE_EXPORT_FOLDER, exist_ok=True)
+
+# Clean uploads folder on startup
+try:
+    for filename in os.listdir(UPLOAD_FOLDER):
+        file_path = os.path.join(UPLOAD_FOLDER, filename)
+        if os.path.isfile(file_path):
+            os.remove(file_path)
+    logger.info("Successfully cleaned uploads folder on startup.")
+except Exception as e:
+    logger.error(f"Failed to clean uploads folder on startup: {e}")
 
 app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
 app.config['EXPORT_FOLDER'] = EXPORT_FOLDER
@@ -60,6 +74,22 @@ app.config['MAX_CONTENT_LENGTH'] = 600 * 1024 * 1024  # 600 MB — supports ~20 
 def allowed_file(filename, allowed_set):
     return '.' in filename and filename.rsplit('.', 1)[1].lower() in allowed_set
 
+def template_filename(name):
+    safe_name = secure_filename((name or '').strip())
+    if not safe_name:
+        safe_name = 'template'
+    root, ext = os.path.splitext(safe_name)
+    if ext.lower() != '.json':
+        safe_name = f"{safe_name}.json"
+    return safe_name
+
+def template_path(name):
+    filename = template_filename(name)
+    path = os.path.abspath(os.path.join(TEMPLATE_FOLDER, filename))
+    if not path.startswith(os.path.abspath(TEMPLATE_FOLDER) + os.sep):
+        raise ValueError('Invalid template name')
+    return filename, path
+
 def get_audio_duration(file_path):
     """Retrieves audio duration using ffprobe."""
     try:
@@ -73,6 +103,36 @@ def get_audio_duration(file_path):
         logger.error(f"Error reading audio duration with ffprobe: {e}")
         return 10.0  # Fallback duration
 
+def normalize_ffmpeg_options(source=None):
+    """Return safe final MP4 encode options from form/json data."""
+    source = source or {}
+    allowed_presets = {'ultrafast', 'superfast', 'veryfast', 'faster', 'fast', 'medium', 'slow', 'slower'}
+    allowed_audio = {'128k', '160k', '192k', '256k', '320k'}
+
+    preset = str(source.get('ffmpeg_preset') or source.get('preset') or 'fast').lower()
+    if preset not in allowed_presets:
+        preset = 'fast'
+
+    try:
+        crf = int(source.get('ffmpeg_crf') or source.get('crf') or 18)
+    except (TypeError, ValueError):
+        crf = 18
+    crf = max(12, min(30, crf))
+
+    audio_bitrate = str(source.get('ffmpeg_audio_bitrate') or source.get('audio_bitrate') or '192k').lower()
+    if audio_bitrate not in allowed_audio:
+        audio_bitrate = '192k'
+
+    return {
+        'preset': preset,
+        'crf': str(crf),
+        'audio_bitrate': audio_bitrate
+    }
+
+@app.route('/favicon.ico')
+def favicon():
+    return '', 204
+
 @app.route('/')
 def index():
     return render_template('index.html')
@@ -81,20 +141,20 @@ def index():
 def upload_file():
     if 'file' not in request.files:
         return jsonify({'error': 'No file part'}), 400
-    
+
     file = request.files['file']
     if file.filename == '':
         return jsonify({'error': 'No selected file'}), 400
 
     file_type = request.form.get('type', 'image')
     allowed_set = ALLOWED_IMAGE_EXTENSIONS if file_type == 'image' else ALLOWED_AUDIO_EXTENSIONS
-    
+
     if file and allowed_file(file.filename, allowed_set):
         ext = file.filename.rsplit('.', 1)[1].lower()
         unique_name = f"{uuid.uuid4()}.{ext}"
         save_path = os.path.join(app.config['UPLOAD_FOLDER'], unique_name)
         file.save(save_path)
-        
+
         # Gather info
         info = {
             'filename': unique_name,
@@ -102,10 +162,10 @@ def upload_file():
             'type': file_type,
             'url': f'/uploads/{unique_name}'
         }
-        
+
         if file_type == 'audio' or ext in {'mp4', 'webm', 'mov'}:
             info['duration'] = get_audio_duration(save_path)
-            
+
         logger.info(f"Uploaded {file_type} file: {file.filename} -> {unique_name}")
         return jsonify(info)
     else:
@@ -135,8 +195,7 @@ def subtitle_job_dir(job_id):
     safe_id = secure_filename(str(job_id))
     if not safe_id or safe_id != str(job_id):
         return None
-    resolved = safe_join(SUBTITLE_EXPORT_FOLDER, safe_id)
-    return resolved
+    return safe_join(SUBTITLE_EXPORT_FOLDER, safe_id)
 
 
 def attach_subtitle_output_urls(job_id, manifest):
@@ -170,42 +229,6 @@ def resolve_subtitle_mux_file(job_id):
     if not subtitle_path or not os.path.exists(subtitle_path):
         return None
     return subtitle_path
-
-
-def build_remux_command(webm_path, mp4_path, audio_path=None, subtitle_path=None):
-    """Build FFmpeg command for MP4 output with optional audio and mov_text subtitles."""
-    cmd = ['ffmpeg', '-y', '-i', webm_path]
-    audio_index = None
-    subtitle_index = None
-
-    if audio_path and os.path.exists(audio_path):
-        audio_index = 1
-        cmd.extend(['-i', audio_path])
-
-    if subtitle_path and os.path.exists(subtitle_path):
-        subtitle_index = 1 + (1 if audio_index is not None else 0)
-        cmd.extend(['-i', subtitle_path])
-
-    cmd.extend(['-map', '0:v:0'])
-    if audio_index is not None:
-        cmd.extend(['-map', f'{audio_index}:a:0'])
-    if subtitle_index is not None:
-        cmd.extend(['-map', f'{subtitle_index}:0'])
-
-    cmd.extend([
-        '-c:v', 'libx264',
-        '-pix_fmt', 'yuv420p',
-        '-preset', 'fast',
-        '-crf', '18',
-    ])
-    if audio_index is not None:
-        cmd.extend(['-c:a', 'aac', '-b:a', '192k'])
-    if subtitle_index is not None:
-        cmd.extend(['-c:s', 'mov_text', '-metadata:s:s:0', 'language=eng'])
-    if audio_index is not None:
-        cmd.append('-shortest')
-    cmd.append(mp4_path)
-    return cmd
 
 
 @app.route('/api/subtitles/jobs', methods=['POST'])
@@ -303,7 +326,6 @@ def get_subtitle_job(job_id):
     manifest_path = safe_join(job_dir, 'job.json') if job_dir else None
     if manifest_path and os.path.exists(manifest_path):
         try:
-            import json
             with open(manifest_path, 'r', encoding='utf-8') as handle:
                 manifest = json.load(handle)
             return jsonify({
@@ -423,6 +445,53 @@ def download_subtitle_stem(job_id, filename):
         return jsonify({'error': 'Stem output not found.'}), 404
     return send_from_directory(stem_dir, safe_name, as_attachment=True)
 
+@app.route('/api/templates', methods=['GET'])
+def list_templates():
+    """List saved visualizer setting templates."""
+    try:
+        templates = []
+        for filename in sorted(os.listdir(TEMPLATE_FOLDER), key=str.lower):
+            if filename.lower().endswith('.json'):
+                path = os.path.join(TEMPLATE_FOLDER, filename)
+                templates.append({
+                    'name': filename[:-5],
+                    'filename': filename,
+                    'modified': os.path.getmtime(path)
+                })
+        return jsonify({'templates': templates})
+    except Exception as e:
+        logger.error(f"Failed to list templates: {e}")
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/templates/<name>', methods=['GET'])
+def load_template(name):
+    """Load a saved visualizer setting template."""
+    try:
+        filename, path = template_path(name)
+        if not os.path.exists(path):
+            return jsonify({'error': f'Template not found: {filename}'}), 404
+        with open(path, 'r', encoding='utf-8') as f:
+            return jsonify(json.load(f))
+    except Exception as e:
+        logger.error(f"Failed to load template: {e}")
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/templates', methods=['POST'])
+def save_template():
+    """Save visualizer settings as a simple JSON template."""
+    try:
+        data = request.get_json(silent=True) or {}
+        filename, path = template_path(data.get('name'))
+        payload = data.get('template') or data.get('settings')
+        if not isinstance(payload, dict):
+            return jsonify({'error': 'Template settings must be a JSON object'}), 400
+        with open(path, 'w', encoding='utf-8') as f:
+            json.dump(payload, f, indent=2)
+        logger.info(f"Saved settings template: {filename}")
+        return jsonify({'status': 'success', 'name': filename[:-5], 'filename': filename})
+    except Exception as e:
+        logger.error(f"Failed to save template: {e}")
+        return jsonify({'error': str(e)}), 500
 
 @app.route('/api/clean', methods=['POST'])
 def clean_uploads():
@@ -440,11 +509,77 @@ def clean_uploads():
         logger.error(f"Failed to clean uploads folder: {e}")
         return jsonify({'error': str(e)}), 500
 
-def run_remux_thread(w_path, m_path, t_id, a_path, a_del_path, subtitle_path=None):
-    """Run FFmpeg in a background thread to transcode WebM → H.264 MP4."""
+def build_remux_command(video_input_args, mp4_path, audio_path=None, subtitle_path=None, ffmpeg_options=None):
+    """Build FFmpeg command for MP4 output with optional audio and mov_text subtitles."""
+    ffmpeg_options = normalize_ffmpeg_options(ffmpeg_options)
+    if isinstance(video_input_args, (str, os.PathLike)):
+        input_args = ['-i', os.fspath(video_input_args)]
+    else:
+        input_args = list(video_input_args)
+
+    cmd = ['ffmpeg', '-y', *input_args]
+    audio_index = None
+    subtitle_index = None
+
+    if audio_path and os.path.exists(audio_path):
+        audio_index = 1
+        cmd.extend(['-i', audio_path])
+
+    if subtitle_path and os.path.exists(subtitle_path):
+        subtitle_index = 1 + (1 if audio_index is not None else 0)
+        cmd.extend(['-i', subtitle_path])
+
+    cmd.extend(['-map', '0:v:0'])
+    if audio_index is not None:
+        cmd.extend(['-map', f'{audio_index}:a:0'])
+    if subtitle_index is not None:
+        cmd.extend(['-map', f'{subtitle_index}:0'])
+
+    cmd.extend([
+        '-c:v', 'libx264',
+        '-pix_fmt', 'yuv420p',
+        '-preset', ffmpeg_options['preset'],
+        '-crf', ffmpeg_options['crf'],
+    ])
+    if audio_index is not None:
+        cmd.extend(['-c:a', 'aac', '-b:a', ffmpeg_options['audio_bitrate']])
+    if subtitle_index is not None:
+        cmd.extend(['-c:s', 'mov_text', '-metadata:s:s:0', 'language=eng'])
+    if audio_index is not None:
+        cmd.append('-shortest')
+    cmd.append(mp4_path)
+    return cmd
+
+
+def run_remux_thread(video_input_args, m_path, t_id, a_path, a_del_path, cleanup_paths=None, ffmpeg_options=None, subtitle_path=None):
+    """Run FFmpeg in a background thread to transcode WebM → H.264 MP4.
+
+    video_input_args is the list of FFmpeg input args for the video source, e.g.
+        ['-i', webm_path]                                   (single WebM file)
+        ['-f', 'concat', '-safe', '0', '-i', concat_list]   (stream N segments)
+
+    Using the concat demuxer as a direct input means FFmpeg reads one segment
+    chunk at a time and writes the MP4 incrementally — no full-length WebM is
+    ever assembled in RAM or on disk, so peak memory is bounded regardless of
+    video length.
+
+    cleanup_paths lists temp files (segments, concat list, single WebM) to delete
+    once the transcode finishes.
+    """
+    cleanup_paths = cleanup_paths or []
+    ffmpeg_options = normalize_ffmpeg_options(ffmpeg_options)
+    process = None
     try:
-        cmd = build_remux_command(w_path, m_path, a_path, subtitle_path)
+        cmd = build_remux_command(
+            video_input_args,
+            m_path,
+            audio_path=a_path,
+            subtitle_path=subtitle_path,
+            ffmpeg_options=ffmpeg_options,
+        )
         logger.info(f"Remuxing WebM to MP4: {' '.join(cmd)}")
+        # stderr is merged into stdout and drained line-by-line below, so FFmpeg's
+        # progress/warning output never accumulates in a memory buffer.
         process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, bufsize=1)
         for line in iter(process.stdout.readline, ''):
             line_str = line.strip()
@@ -461,10 +596,14 @@ def run_remux_thread(w_path, m_path, t_id, a_path, a_del_path, subtitle_path=Non
         logger.error(f"Remux exception: {e}")
         render_tasks[t_id] = {'status': 'failed', 'url': None, 'error': str(e), 'last_log_line': ''}
     finally:
-        if os.path.exists(w_path):
-            try: os.remove(w_path)
+        if process and process.stdout:
+            try: process.stdout.close()
             except Exception: pass
-        if a_del_path and os.path.exists(a_del_path):
+        for p in cleanup_paths:
+            if p and os.path.exists(p):
+                try: os.remove(p)
+                except Exception: pass
+        if a_del_path and a_del_path not in cleanup_paths and os.path.exists(a_del_path):
             try: os.remove(a_del_path)
             except Exception: pass
 
@@ -477,7 +616,7 @@ def remux_video():
     file = request.files['file']
     if file.filename == '':
         return jsonify({'error': 'No selected file'}), 400
-        
+
     export_name = request.form.get('export_name', '')
     if export_name:
         if export_name.lower().endswith('.mp4'):
@@ -485,21 +624,21 @@ def remux_video():
         safe_export_name = secure_filename(export_name)
     else:
         safe_export_name = f"remux_{uuid.uuid4()}"
-        
+
     if not safe_export_name:
         safe_export_name = f"remux_{uuid.uuid4()}"
-        
+
     task_id = f"{safe_export_name}.mp4"
     webm_filename = f"temp_{uuid.uuid4()}.webm"
     webm_path = os.path.join(app.config['UPLOAD_FOLDER'], webm_filename)
     mp4_path = os.path.join(app.config['EXPORT_FOLDER'], task_id)
-    
+
     file.save(webm_path)
-    
+
     # Check for optional audio file/upload
     audio_path = None
     audio_to_delete = None
-    
+
     # 1. Check for client-uploaded synth audio (audio_upload)
     if 'audio_upload' in request.files:
         audio_file_upload = request.files['audio_upload']
@@ -530,10 +669,14 @@ def remux_video():
         'url': f'/exports/{task_id}',
         'last_log_line': 'FFmpeg remuxing and audio transcoding starting...'
     }
-    
-    thread = threading.Thread(target=run_remux_thread, args=(webm_path, mp4_path, task_id, audio_path, audio_to_delete, subtitle_path))
+
+    ffmpeg_options = normalize_ffmpeg_options(request.form)
+    thread = threading.Thread(
+        target=run_remux_thread,
+        args=(['-i', webm_path], mp4_path, task_id, audio_path, audio_to_delete, [webm_path], ffmpeg_options, subtitle_path),
+    )
     thread.start()
-    
+
     return jsonify({
         'status': 'processing',
         'task_id': task_id,
@@ -560,11 +703,14 @@ def remux_segment_upload(session_id, seg_num):
         app.config['UPLOAD_FOLDER'],
         f"temp_{session_id}_s{seg_num:04d}.webm"
     )
+    # Stream the request body to disk in 1 MB chunks so the full segment is
+    # never held in RAM (request.data would buffer the whole body in memory).
     with open(seg_path, 'wb') as f:
-        f.write(request.data)
+        shutil.copyfileobj(request.stream, f, 1 << 20)
+    nbytes = os.path.getsize(seg_path)
     session['segments'][seg_num] = seg_path
-    logger.info(f"Segment {seg_num} received ({len(request.data)} bytes) for session {session_id}")
-    return jsonify({'ok': True, 'seg': seg_num, 'bytes': len(request.data)})
+    logger.info(f"Segment {seg_num} received ({nbytes} bytes) for session {session_id}")
+    return jsonify({'ok': True, 'seg': seg_num, 'bytes': nbytes})
 
 
 @app.route('/api/remux-chunk/<session_id>', methods=['POST'])
@@ -584,51 +730,57 @@ def remux_chunk(session_id):
 def remux_finalize(session_id):
     """Close the upload session and kick off FFmpeg transcoding.
 
-    If the session contains numbered segments (from the segment-based export),
-    they are concatenated with `ffmpeg -f concat` before the audio mux step.
-    This keeps browser RAM bounded to one segment at a time during encoding.
+    For the segment-based export, the segment files are fed straight into the
+    single transcode pass via FFmpeg's concat demuxer. No intermediate full-length
+    WebM is assembled — FFmpeg streams one segment chunk at a time and writes the
+    MP4 incrementally, so server memory stays bounded no matter how long the video
+    is. (The previous two-step concat-then-transcode built a giant WebM and
+    buffered FFmpeg's per-frame warnings in RAM via subprocess.run.)
     """
     session = remux_sessions.pop(session_id, None)
     if not session:
         return jsonify({'error': 'Invalid or expired session'}), 404
 
     segments = session.get('segments', {})
+    cleanup_paths = []
 
     if segments:
-        # Segment-based export: concat N WebM files into one before transcoding
+        # Segment-based export: stream the segment files directly through the
+        # concat demuxer. The concat list is consumed by the transcode thread,
+        # so the segments + list are cleaned up there (not here).
         sorted_paths = [segments[k] for k in sorted(segments.keys())]
         concat_list  = os.path.join(app.config['UPLOAD_FOLDER'], f"temp_{session_id}_concat.txt")
-        webm_path    = os.path.join(app.config['UPLOAD_FOLDER'], f"temp_{session_id}.webm")
-
         with open(concat_list, 'w') as f:
             for p in sorted_paths:
-                f.write(f"file '{p}'\n")
-
-        try:
-            result = subprocess.run(
-                ['ffmpeg', '-y', '-f', 'concat', '-safe', '0',
-                 '-i', concat_list, '-c', 'copy', webm_path],
-                stdout=subprocess.PIPE, stderr=subprocess.PIPE
-            )
-            if result.returncode != 0:
-                err = result.stderr.decode(errors='replace')
-                logger.error(f"FFmpeg concat failed: {err}")
-                return jsonify({'error': f'Segment concat failed: {err[:200]}'}), 500
-            logger.info(f"Concatenated {len(sorted_paths)} segments → {webm_path}")
-        finally:
-            try: os.remove(concat_list)
-            except Exception: pass
-            for p in sorted_paths:
-                try: os.remove(p)
-                except Exception: pass
+                # concat demuxer: forward slashes are safe cross-platform; escape single quotes
+                safe_p = os.path.abspath(p).replace('\\', '/').replace("'", "'\\''")
+                f.write(f"file '{safe_p}'\n")
+        # +genpts cleanly regenerates presentation timestamps across the segment
+        # boundaries (each segment restarts its timestamps at 0 on the client).
+        video_input_args = ['-fflags', '+genpts', '-f', 'concat', '-safe', '0', '-i', concat_list]
+        cleanup_paths.extend(sorted_paths)
+        cleanup_paths.append(concat_list)
+        if session.get('webm_path'):          # empty placeholder from remux-start
+            cleanup_paths.append(session['webm_path'])
+        logger.info(f"Finalizing {len(sorted_paths)} segments via concat demuxer for session {session_id}")
     else:
         webm_path = session['webm_path']
+        video_input_args = ['-i', webm_path]
+        cleanup_paths.append(webm_path)
 
     export_name = request.form.get('export_name', '')
     if export_name.lower().endswith('.mp4'):
         export_name = export_name[:-4]
     safe_name = secure_filename(export_name) or f"remux_{uuid.uuid4()}"
     task_id = f"{safe_name}.mp4"
+
+    # Make sure it doesn't overwrite: append _1, _2, etc. if file exists
+    base, ext = os.path.splitext(task_id)
+    counter = 1
+    while os.path.exists(os.path.join(app.config['EXPORT_FOLDER'], task_id)):
+        task_id = f"{base}_{counter}{ext}"
+        counter += 1
+
     mp4_path = os.path.join(app.config['EXPORT_FOLDER'], task_id)
 
     audio_path = None
@@ -648,7 +800,275 @@ def remux_finalize(session_id):
     subtitle_path = resolve_subtitle_mux_file(request.form.get('subtitle_job_id', ''))
 
     render_tasks[task_id] = {'status': 'processing', 'error': None, 'url': f'/exports/{task_id}', 'last_log_line': 'FFmpeg starting...'}
-    threading.Thread(target=run_remux_thread, args=(webm_path, mp4_path, task_id, audio_path, audio_to_delete, subtitle_path)).start()
+    ffmpeg_options = normalize_ffmpeg_options(request.form)
+    threading.Thread(
+        target=run_remux_thread,
+        args=(video_input_args, mp4_path, task_id, audio_path, audio_to_delete, cleanup_paths, ffmpeg_options, subtitle_path)
+    ).start()
+    return jsonify({'status': 'processing', 'task_id': task_id, 'url': f'/exports/{task_id}'})
+
+
+def launch_playwright_browser(pw):
+    """Launch an installed Chromium-family browser, preferring Edge/Chrome on Windows."""
+    launch_args = [
+        '--autoplay-policy=no-user-gesture-required',
+        '--disable-dev-shm-usage',
+        '--ignore-gpu-blocklist',
+        '--enable-webgl',
+    ]
+    errors = []
+    for channel in ('msedge', 'chrome', None):
+        try:
+            kwargs = {'headless': True, 'args': launch_args}
+            if channel:
+                kwargs['channel'] = channel
+            return pw.chromium.launch(**kwargs)
+        except Exception as e:
+            errors.append(f"{channel or 'bundled chromium'}: {e}")
+    raise RuntimeError("Could not launch headless Chromium. Tried: " + " | ".join(errors))
+
+
+def run_exact_server_render(task_id, payload, base_url):
+    """Render the existing canvas visualizer in headless Chromium and pipe PNG frames to FFmpeg."""
+    try:
+        from playwright.sync_api import sync_playwright
+    except Exception as e:
+        render_tasks[task_id] = {
+            'status': 'failed',
+            'url': None,
+            'error': f"Missing Python dependency: playwright. Install requirements.txt and run: python -m playwright install chromium. Details: {e}",
+            'last_log_line': ''
+        }
+        return
+
+    fps = int(payload.get('fps') or 30)
+    duration = float(payload.get('duration') or 0)
+    ffmpeg_options = normalize_ffmpeg_options(payload.get('ffmpeg') or {})
+    total_frames = max(1, int(duration * fps + 0.999))
+    output_path = os.path.join(app.config['EXPORT_FOLDER'], task_id)
+    audio_filename = payload.get('audio_filename')
+    audio_path = os.path.join(app.config['UPLOAD_FOLDER'], secure_filename(audio_filename or ''))
+
+    if not audio_filename or not os.path.exists(audio_path):
+        render_tasks[task_id] = {
+            'status': 'failed',
+            'url': None,
+            'error': 'Exact server render currently requires an uploaded audio file.',
+            'last_log_line': ''
+        }
+        return
+
+    cmd = [
+        'ffmpeg', '-y',
+        '-f', 'image2pipe',
+        '-vcodec', 'png',
+        '-framerate', str(fps),
+        '-i', 'pipe:0',
+        '-i', audio_path,
+        '-c:v', 'libx264',
+        '-pix_fmt', 'yuv420p',
+        '-preset', ffmpeg_options['preset'],
+        '-crf', ffmpeg_options['crf'],
+        '-c:a', 'aac',
+        '-b:a', ffmpeg_options['audio_bitrate'],
+        '-shortest',
+        output_path
+    ]
+
+    browser = None
+    process = None
+    try:
+        render_tasks[task_id]['last_log_line'] = 'Launching headless browser...'
+        with sync_playwright() as pw:
+            browser = launch_playwright_browser(pw)
+            page = browser.new_page(viewport={'width': 1920, 'height': 1080}, device_scale_factor=1)
+            page.goto(base_url, wait_until='networkidle', timeout=60000)
+
+            render_tasks[task_id]['last_log_line'] = 'Preparing exact canvas renderer...'
+            page.evaluate(
+                """async ({ payload }) => {
+                    const wait = ms => new Promise(resolve => setTimeout(resolve, ms));
+                    await wait(250);
+
+                    const assignPlain = (target, source) => {
+                        if (!source) return;
+                        for (const [key, value] of Object.entries(source)) {
+                            target[key] = value;
+                        }
+                    };
+
+                    syncDOMToState();
+                    assignPlain(state.visuals, payload.visuals);
+                    assignPlain(state.fx, payload.fx);
+                    assignPlain(state.text, payload.text);
+                    state.visuals.particles = [];
+                    state.audio.currentTime = 0;
+                    state.audio.isPlaying = false;
+                    state.audio.synthActive = false;
+
+                    resizeCanvas();
+                    setupParticles();
+
+                    const loadImage = url => new Promise((resolve, reject) => {
+                        if (!url) return resolve(null);
+                        const img = new Image();
+                        img.onload = () => resolve(img);
+                        img.onerror = () => reject(new Error(`Could not load image ${url}`));
+                        img.src = url;
+                    });
+
+                    const loadVideo = url => new Promise((resolve, reject) => {
+                        if (!url) return resolve(null);
+                        const video = document.createElement('video');
+                        video.muted = true;
+                        video.loop = true;
+                        video.preload = 'auto';
+                        video.playsInline = true;
+                        video.onloadedmetadata = () => resolve(video);
+                        video.onerror = () => reject(new Error(`Could not load video ${url}`));
+                        video.src = url;
+                        video.load();
+                    });
+
+                    const isVideoUrl = url => /\\.(mp4|webm|mov)(\\?|$)/i.test(url || '');
+
+                    state.visuals.bgImage = null;
+                    state.visuals.bgVideo = null;
+                    state.visuals.fgImage = null;
+                    state.visuals.fgVideo = null;
+                    state.visuals.customShapeImage = null;
+
+                    const visuals = payload.visuals || {};
+
+                    if (visuals.bgImageUrl) {
+                        if (isVideoUrl(visuals.bgImageUrl)) {
+                            state.visuals.bgVideo = await loadVideo(visuals.bgImageUrl);
+                        } else {
+                            state.visuals.bgImage = await loadImage(visuals.bgImageUrl);
+                        }
+                    }
+                    if (visuals.fgImageUrl) {
+                        if (isVideoUrl(visuals.fgImageUrl)) {
+                            state.visuals.fgVideo = await loadVideo(visuals.fgImageUrl);
+                        } else {
+                            state.visuals.fgImage = await loadImage(visuals.fgImageUrl);
+                        }
+                    }
+                    if (visuals.customShapeImageUrl) {
+                        state.visuals.customShapeImage = await loadImage(visuals.customShapeImageUrl);
+                    }
+
+                    const audioResp = await fetch(payload.audio_url);
+                    if (!audioResp.ok) throw new Error('Could not load audio in headless renderer');
+                    const audioData = await audioResp.arrayBuffer();
+                    const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+                    const exportBuffer = await audioCtx.decodeAudioData(audioData.slice(0));
+
+                    let prevSmoothed = new Uint8Array(256);
+                    let currentTimeDomain = new Uint8Array(512).fill(128);
+                    state.audio.analyser = {
+                        frequencyBinCount: 256,
+                        fftSize: 512,
+                        getByteFrequencyData(array) {
+                            for (let i = 0; i < Math.min(array.length, prevSmoothed.length); i++) {
+                                array[i] = prevSmoothed[i];
+                            }
+                        },
+                        getByteTimeDomainData(array) {
+                            for (let i = 0; i < Math.min(array.length, currentTimeDomain.length); i++) {
+                                array[i] = currentTimeDomain[i];
+                            }
+                        }
+                    };
+
+                    window.__exactServerRenderFrame = async (frameIndex, fps) => {
+                        const time = frameIndex / fps;
+                        state.audio.currentTime = time;
+                        prevSmoothed = extractFFTBins(exportBuffer, time, prevSmoothed, state.visuals.smoothing);
+                        currentTimeDomain = extractTimeDomainBins(exportBuffer, time);
+                        if (state.visuals.bgVideo) await syncVideoToTime(state.visuals.bgVideo, time);
+                        if (state.visuals.fgVideo) await syncVideoToTime(state.visuals.fgVideo, time);
+                        renderFrame();
+                        return elements.visualizerCanvas.toDataURL('image/png').split(',')[1];
+                    };
+                }""",
+                {'payload': payload}
+            )
+
+            render_tasks[task_id]['last_log_line'] = 'Starting FFmpeg frame pipe...'
+            process = subprocess.Popen(cmd, stdin=subprocess.PIPE, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, bufsize=0)
+
+            last_progress_update = time.time()
+            for frame_index in range(total_frames):
+                b64_png = page.evaluate(
+                    "(args) => window.__exactServerRenderFrame(args.frameIndex, args.fps)",
+                    {'frameIndex': frame_index, 'fps': fps}
+                )
+                process.stdin.write(base64.b64decode(b64_png))
+
+                now = time.time()
+                if now - last_progress_update > 1.0 or frame_index == total_frames - 1:
+                    pct = int(((frame_index + 1) / total_frames) * 100)
+                    render_tasks[task_id]['last_log_line'] = f'Exact server render: frame {frame_index + 1}/{total_frames} ({pct}%)'
+                    last_progress_update = now
+
+            process.stdin.close()
+            process.wait()
+            if process.returncode == 0:
+                render_tasks[task_id] = {
+                    'status': 'completed',
+                    'url': f'/exports/{task_id}',
+                    'error': None,
+                    'last_log_line': 'Exact server render completed successfully!'
+                }
+            else:
+                logger.error("Exact server render FFmpeg failed")
+                render_tasks[task_id] = {
+                    'status': 'failed',
+                    'url': None,
+                    'error': f'FFmpeg failed during exact server render (exit {process.returncode}).',
+                    'last_log_line': ''
+                }
+    except Exception as e:
+        logger.exception("Exact server render failed")
+        render_tasks[task_id] = {
+            'status': 'failed',
+            'url': None,
+            'error': str(e),
+            'last_log_line': ''
+        }
+        if process and process.poll() is None:
+            try:
+                process.kill()
+            except Exception:
+                pass
+    finally:
+        if browser:
+            try:
+                browser.close()
+            except Exception:
+                pass
+
+
+@app.route('/api/server-render-exact', methods=['POST'])
+def server_render_exact():
+    """Render the exact browser canvas in headless Chromium and encode with FFmpeg."""
+    payload = request.get_json(silent=True) or {}
+    export_name = secure_filename(payload.get('export_name') or f"exact_{uuid.uuid4()}")
+    if export_name.lower().endswith('.mp4'):
+        export_name = export_name[:-4]
+    task_id = f"{export_name}.mp4"
+    render_tasks[task_id] = {
+        'status': 'processing',
+        'error': None,
+        'url': f'/exports/{task_id}',
+        'last_log_line': 'Exact server render queued...'
+    }
+    threading.Thread(
+        target=run_exact_server_render,
+        args=(task_id, payload, request.host_url),
+        daemon=True
+    ).start()
     return jsonify({'status': 'processing', 'task_id': task_id, 'url': f'/exports/{task_id}'})
 
 
@@ -662,17 +1082,17 @@ def probe_file(file_path):
     try:
         result = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, check=True)
         info = json.loads(result.stdout)
-        
+
         has_video = False
         has_audio = False
         duration = 0.0
-        
+
         if 'format' in info and 'duration' in info['format']:
             try:
                 duration = float(info['format']['duration'])
             except (ValueError, TypeError):
                 pass
-                
+
         for stream in info.get('streams', []):
             codec_type = stream.get('codec_type')
             if codec_type == 'video':
@@ -689,7 +1109,7 @@ def probe_file(file_path):
                         duration = float(stream['duration'])
                     except (ValueError, TypeError):
                         pass
-                        
+
         return {
             'has_video': has_video,
             'has_audio': has_audio,
@@ -709,19 +1129,19 @@ def build_combine_filter_graph(video_files_info, crossfade_duration, crossfade_v
     """
     N = len(video_files_info)
     filters = []
-    
+
     # 1. Generate normalized streams
     for i, info in enumerate(video_files_info):
         d = info['duration']
         # Video normalization: scale and pad to 1920x1080, force 30fps and format yuv420p
         filters.append(f"[{i}:v]scale=1920:1080:force_original_aspect_ratio=decrease,pad=1920:1080:(ow-iw)/2:(oh-ih)/2,setsar=1,fps=30,format=yuv420p[v{i}_norm]")
-        
+
         # Audio normalization: convert sample rate and channels. If no audio stream is present, generate silent audio.
         if info['has_audio']:
             filters.append(f"[{i}:a]aformat=sample_rates=44100:channel_layouts=stereo,asetpts=PTS-STARTPTS[a{i}_norm]")
         else:
             filters.append(f"anullsrc=r=44100:cl=stereo,atrim=0:{d},asetpts=PTS-STARTPTS[a{i}_norm]")
-            
+
     # 2. Process video stream combining
     v_last_label = "v0_norm"
     if N > 1:
@@ -740,7 +1160,7 @@ def build_combine_filter_graph(video_files_info, crossfade_duration, crossfade_v
             concat_inputs = "".join(f"[v{i}_norm]" for i in range(N))
             filters.append(f"{concat_inputs}concat=n={N}:v=1:a=0[v_out]")
             v_last_label = "v_out"
-            
+
     # 3. Process audio stream combining
     a_last_label = "a0_norm"
     if N > 1:
@@ -754,7 +1174,7 @@ def build_combine_filter_graph(video_files_info, crossfade_duration, crossfade_v
             concat_inputs = "".join(f"[a{i}_norm]" for i in range(N))
             filters.append(f"{concat_inputs}concat=n={N}:v=0:a=1[a_out]")
             a_last_label = "a_out"
-            
+
     filter_complex = ";\n".join(filters)
     return filter_complex, v_last_label, a_last_label
 
@@ -766,48 +1186,48 @@ def combine_videos():
     crossfade_duration = float(data.get('crossfade_duration', 1.0))
     crossfade_video = bool(data.get('crossfade_video', True))
     crossfade_audio = bool(data.get('crossfade_audio', True))
-    
+
     if not videos:
         return jsonify({'error': 'At least one video is required'}), 400
-        
+
     # Verify all files exist
     video_files_info = []
     for video_name in videos:
         video_path = os.path.join(app.config['UPLOAD_FOLDER'], video_name)
         if not os.path.exists(video_path):
             return jsonify({'error': f'Video file {video_name} not found'}), 404
-        
+
         # Probe file to get duration and check audio presence
         info = probe_file(video_path)
         if not info['has_video']:
             return jsonify({'error': f'File {video_name} is not a valid video'}), 400
-            
+
         video_files_info.append({
             'filename': video_name,
             'path': video_path,
             'duration': info['duration'],
             'has_audio': info['has_audio']
         })
-        
+
     # Limit crossfade duration if it's longer than any video
     shortest_duration = min(info['duration'] for info in video_files_info)
     if crossfade_duration >= shortest_duration:
         crossfade_duration = max(0.0, shortest_duration - 0.1)
-        
+
     # Generate unique output task name
     output_filename = f"combined_{uuid.uuid4()}.mp4"
     output_path = os.path.join(app.config['EXPORT_FOLDER'], output_filename)
-    
+
     # Build the filter graph
     filter_complex, v_out, a_out = build_combine_filter_graph(
         video_files_info, crossfade_duration, crossfade_video, crossfade_audio
     )
-    
+
     # Build command line
     cmd = ['ffmpeg', '-y']
     for info in video_files_info:
         cmd.extend(['-i', info['path']])
-        
+
     cmd.extend([
         '-filter_complex', filter_complex,
         '-map', f'[{v_out}]',
@@ -820,9 +1240,9 @@ def combine_videos():
         '-b:a', '192k',
         output_path
     ])
-    
+
     logger.info(f"Launching FFmpeg Combine: {' '.join(cmd)}")
-    
+
     # Track the task in render_tasks
     render_tasks[output_filename] = {
         'status': 'processing',
@@ -830,11 +1250,11 @@ def combine_videos():
         'url': f'/exports/{output_filename}',
         'last_log_line': 'FFmpeg merge process starting...'
     }
-    
+
     def process_combine(cmd_list, task_id):
         try:
             process = subprocess.Popen(cmd_list, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, bufsize=1)
-            
+
             for line in iter(process.stdout.readline, ''):
                 line_str = line.strip()
                 if line_str:
@@ -843,9 +1263,9 @@ def combine_videos():
                         render_tasks[task_id]['last_log_line'] = line_str
                     elif 'Error' in line_str or 'error' in line_str:
                         render_tasks[task_id]['last_log_line'] = f"Warning: {line_str}"
-                        
+
             process.wait()
-            
+
             if process.returncode == 0:
                 logger.info(f"FFmpeg combine successful: {task_id}")
                 render_tasks[task_id] = {
@@ -868,11 +1288,11 @@ def combine_videos():
                 'url': None,
                 'error': str(e)
             }
-            
+
     # Start combining in background
     thread = threading.Thread(target=process_combine, args=(cmd, output_filename))
     thread.start()
-    
+
     return jsonify({
         'status': 'processing',
         'task_id': output_filename,
@@ -885,34 +1305,34 @@ def render_video():
     data = request.json or {}
     audio_file = data.get('audio')
     image_file = data.get('image')
-    
+
     # Visual params
     waveform_type = data.get('waveform_type', 'line')
     waveform_color = data.get('waveform_color', '#3b82f6')
     waveform_position = data.get('waveform_position', 'bottom')  # top, middle, bottom
-    
+
     title_text = data.get('title', '')
     artist_text = data.get('artist', '')
     text_color = data.get('text_color', '#ffffff')
     text_size = int(data.get('text_size', 48))
-    
+
     aspect_ratio = data.get('aspect_ratio', '16:9')  # 16:9 or 9:16
-    
+
     if not audio_file:
         return jsonify({'error': 'Audio file is required'}), 400
-        
+
     audio_path = os.path.join(app.config['UPLOAD_FOLDER'], audio_file)
     if not os.path.exists(audio_path):
         return jsonify({'error': f'Audio file {audio_file} not found'}), 404
-        
+
     duration = get_audio_duration(audio_path)
-    
+
     # Determine video dimensions
     if aspect_ratio == '9:16':
         w, h = 1080, 1920
     else:
         w, h = 1920, 1080
-        
+
     # Process background image or video (or generate beautiful solid gradient if missing)
     bg_path = None
     is_video_bg = False
@@ -921,11 +1341,11 @@ def render_video():
         if os.path.exists(raw_bg_path):
             bg_path = raw_bg_path
             is_video_bg = image_file.rsplit('.', 1)[1].lower() in {'mp4', 'webm', 'mov'}
-            
+
     # Base background image compilation
     composited_bg_filename = f"bg_comp_{uuid.uuid4()}.png"
     composited_bg_path = os.path.join(app.config['UPLOAD_FOLDER'], composited_bg_filename)
-    
+
     if is_video_bg:
         # If video background, bypass Pillow composite entirely and use raw video path
         composited_bg_path = bg_path
@@ -934,12 +1354,12 @@ def render_video():
             if bg_path:
                 # Load and resize background image to cover dimensions
                 img = Image.open(bg_path).convert('RGBA')
-                
+
                 # Crop to aspect ratio if necessary
                 img_w, img_h = img.size
                 target_ratio = w / h
                 img_ratio = img_w / img_h
-                
+
                 if img_ratio > target_ratio:
                     # Image is too wide
                     new_w = int(img_h * target_ratio)
@@ -950,7 +1370,7 @@ def render_video():
                     new_h = int(img_w / target_ratio)
                     top = (img_h - new_h) // 2
                     img = img.crop((0, top, img_w, top + new_h))
-                    
+
                 img = img.resize((w, h), Image.Resampling.LANCZOS)
             else:
                 # Generate a gorgeous rich dark gradient image
@@ -965,13 +1385,13 @@ def render_video():
                         dist = (dx**2 + dy**2)**0.5
                         max_dist = (w**2 + h**2)**0.5 / 2
                         ratio = min(dist / max_dist, 1.0)
-                        
+
                         # Gradient color transition from Deep Indigo to Zinc
                         r = int(9 * ratio + 30 * (1 - ratio))
                         g = int(9 * ratio + 15 * (1 - ratio))
                         b = int(11 * ratio + 50 * (1 - ratio))
                         img.putpixel((x, y), (r, g, b, 255))
-            
+
             # Add overlay filter (vignette/darken for better text/wave contrast)
             overlay = Image.new('RGBA', (w, h), (0, 0, 0, 0))
             draw_ov = ImageDraw.Draw(overlay)
@@ -980,10 +1400,10 @@ def render_video():
                 alpha = int((i / 200) ** 2 * 180)
                 draw_ov.rectangle([i, i, w - i, h - i], outline=(0, 0, 0, alpha))
             img = Image.alpha_composite(img, overlay)
-            
+
             # Draw Text Overlay using PIL
             draw = ImageDraw.Draw(img)
-            
+
             # Let's search for a usable system font or use default
             font_title = None
             font_artist = None
@@ -993,7 +1413,7 @@ def render_video():
                 '/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf', # Linux fallback
                 '/System/Library/Fonts/Helvetica.ttc' # macOS fallback
             ]
-            
+
             for path in font_paths:
                 if os.path.exists(path):
                     try:
@@ -1002,43 +1422,43 @@ def render_video():
                         break
                     except Exception:
                         pass
-                        
+
             if font_title is None:
                 font_title = ImageFont.load_default()
                 font_artist = ImageFont.load_default()
-                
+
             # Draw title & artist
             # Convert hex text_color to tuple
             h_color = text_color.lstrip('#')
             rgb_color = tuple(int(h_color[i:i+2], 16) for i in (0, 2, 4))
-            
+
             if title_text:
                 text_w = draw.textlength(title_text, font=font_title) if hasattr(draw, 'textlength') else len(title_text) * (text_size * 0.6)
                 tx = (w - text_w) // 2
                 ty = int(h * 0.3) if aspect_ratio == '16:9' else int(h * 0.4)
-                
+
                 # Subtle drop shadow
                 draw.text((tx + 2, ty + 2), title_text, fill=(0, 0, 0, 180), font=font_title)
                 # Main text
                 draw.text((tx, ty), title_text, fill=rgb_color, font=font_title)
-                
+
                 if artist_text:
                     artist_w = draw.textlength(artist_text, font=font_artist) if hasattr(draw, 'textlength') else len(artist_text) * (text_size * 0.35)
                     ax = (w - artist_w) // 2
                     ay = ty + text_size + 15
                     draw.text((ax + 2, ay + 2), artist_text, fill=(0, 0, 0, 180), font=font_artist)
                     draw.text((ax, ay), artist_text, fill=(180, 180, 180), font=font_artist)
-                    
+
             # Save composited image
             img.save(composited_bg_path, 'PNG')
-            
+
         except Exception as e:
             logger.error(f"Error creating background composite: {e}")
             return jsonify({'error': f"Failed to process background image: {str(e)}"}), 500
-        
+
     # Translate colors to FFmpeg hex (0xRRGGBB format)
     ff_color = waveform_color.replace('#', '0x')
-    
+
     # Set y-offset for overlay based on position
     if waveform_position == 'top':
         y_pos = 100
@@ -1046,14 +1466,14 @@ def render_video():
         y_pos = (h - int(h * 0.25)) // 2
     else: # bottom
         y_pos = h - int(h * 0.25) - 100
-        
+
     # Output file
     output_filename = f"video_{uuid.uuid4()}.mp4"
     output_path = os.path.join(app.config['EXPORT_FOLDER'], output_filename)
-    
+
     # Configure the waveform visualizer filter graph
     wave_h = int(h * 0.25)
-    
+
     if waveform_type == 'spectrum':
         filter_graph = (
             f"[1:a]showfreqs=s={w}x{wave_h}:mode=bar:colors={ff_color}:ascale=log:fscale=log[wave];"
@@ -1073,7 +1493,7 @@ def render_video():
         bg_inputs = ['-stream_loop', '-1', '-i', composited_bg_path]
     else:
         bg_inputs = ['-loop', '1', '-r', '30', '-i', composited_bg_path]
-        
+
     cmd = [
         'ffmpeg', '-y'
     ] + bg_inputs + [
@@ -1089,9 +1509,9 @@ def render_video():
         '-t', str(duration),
         output_path
     ]
-    
+
     logger.info(f"Launching FFmpeg: {' '.join(cmd)}")
-    
+
     # Initialize background task state
     render_tasks[output_filename] = {
         'status': 'processing',
@@ -1099,12 +1519,12 @@ def render_video():
         'url': f'/exports/{output_filename}',
         'last_log_line': 'FFmpeg sub-process starting...'
     }
-    
+
     def process_render(cmd_list, temp_bg, task_id, clean_temp):
         try:
             # Spawn the FFmpeg process with stdout/stderr piped
             process = subprocess.Popen(cmd_list, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, bufsize=1)
-            
+
             # Read FFmpeg progress logs in real-time
             for line in iter(process.stdout.readline, ''):
                 line_str = line.strip()
@@ -1116,9 +1536,9 @@ def render_video():
                         render_tasks[task_id]['last_log_line'] = line_str
                     elif 'Error' in line_str or 'error' in line_str:
                         render_tasks[task_id]['last_log_line'] = f"Warning: {line_str}"
-            
+
             process.wait()
-            
+
             if process.returncode == 0:
                 logger.info(f"FFmpeg render successful: {task_id}")
                 render_tasks[task_id] = {
@@ -1152,7 +1572,7 @@ def render_video():
     # Start render in background
     thread = threading.Thread(target=process_render, args=(cmd, composited_bg_path, output_filename, not is_video_bg))
     thread.start()
-    
+
     return jsonify({
         'status': 'processing',
         'task_id': output_filename,
@@ -1165,7 +1585,7 @@ def check_render_status(filename):
     if filename in render_tasks:
         task_info = render_tasks[filename]
         return jsonify(task_info)
-        
+
     # Fallback to physical file check if not in active memory tasks (e.g. server restarted)
     file_path = os.path.join(app.config['EXPORT_FOLDER'], filename)
     if os.path.exists(file_path):

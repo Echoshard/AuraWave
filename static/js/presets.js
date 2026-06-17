@@ -1,7 +1,7 @@
 /* AuraWave Style & Asset Presets */
 
 const PRESETS = {
-    // Premium dynamic background gradients
+    // Dynamic background gradients
     gradients: [
         {
             id: 'synthwave',
@@ -94,7 +94,7 @@ function drawPresetGradient(ctx, width, height, gradientId) {
     ctx.fillStyle = grad;
     ctx.fillRect(0, 0, width, height);
 
-    // Subtle texture noise (premium analog overlay)
+    // Subtle texture noise (analog overlay)
     ctx.fillStyle = 'rgba(255, 255, 255, 0.015)';
     for (let i = 0; i < 40000; i++) {
         const x = Math.random() * width;

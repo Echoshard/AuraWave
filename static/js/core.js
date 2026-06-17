@@ -123,6 +123,7 @@ const state = {
         glitchFrequency: 0.5,
         glitchRgb: 8,
         glitchSlices: 14,
+        glitchSpeed: 1.0,
         heat: false,
         heatIntensity: 1.0,
         heatSpeed: 1.0,
@@ -169,7 +170,9 @@ const state = {
         shadow: true
     },
     export: {
-        method: 'client', // client or server
+        method: 'server_exact', // server_exact or client
+        preferSoftware: true,
+        optimizeGlows: true,
         recorder: null,
         recordedChunks: [],
         isRecording: false,
@@ -388,6 +391,8 @@ document.addEventListener('DOMContentLoaded', () => {
     elements.glitchRgbVal = document.getElementById('glitch-rgb-val');
     elements.fxGlitchSlices = document.getElementById('fx-glitch-slices');
     elements.glitchSlicesVal = document.getElementById('glitch-slices-val');
+    elements.fxGlitchSpeed = document.getElementById('fx-glitch-speed');
+    elements.glitchSpeedVal = document.getElementById('glitch-speed-val');
 
     // Heat Shimmer
     elements.fxHeat = document.getElementById('fx-heat');
@@ -465,6 +470,7 @@ document.addEventListener('DOMContentLoaded', () => {
     
     elements.optClient = document.getElementById('opt-client');
     elements.optServer = document.getElementById('opt-server');
+    elements.fastClientRenderToggle = document.getElementById('fast-client-render-toggle');
     elements.btnExport = document.getElementById('btn-export');
     
     elements.renderModal = document.getElementById('render-modal');
@@ -478,6 +484,9 @@ document.addEventListener('DOMContentLoaded', () => {
     elements.btnCloseModal = document.getElementById('btn-close-modal');
     elements.badgeGpu = document.getElementById('badge-gpu');
     elements.badgeFfmpeg = document.getElementById('badge-ffmpeg');
+    elements.templateSelect = document.getElementById('template-select');
+    elements.btnSaveTemplate = document.getElementById('btn-save-template');
+    elements.btnLoadTemplate = document.getElementById('btn-load-template');
     elements.circularSettingsGroup = document.getElementById('circular-settings-group');
     elements.circularPulse = document.getElementById('circular-pulse');
     elements.circularRadius = document.getElementById('circular-radius');
@@ -1293,6 +1302,14 @@ document.addEventListener('DOMContentLoaded', () => {
             triggerRedraw();
         });
     }
+    if (elements.fxGlitchSpeed) {
+        elements.fxGlitchSpeed.addEventListener('input', (e) => {
+            const val = parseFloat(e.target.value);
+            state.fx.glitchSpeed = val;
+            elements.glitchSpeedVal.innerText = `${val.toFixed(1)}x`;
+            triggerRedraw();
+        });
+    }
 
     // Heat Shimmer listeners
     if (elements.fxHeat) {
@@ -1498,6 +1515,7 @@ document.addEventListener('DOMContentLoaded', () => {
     initPresets();
     loadSettingsFromLocalStorage();
     syncDOMToState();
+    setupTemplateControls();
 
     // Setup base canvas particles and sizes
     setupParticles();
@@ -1555,9 +1573,9 @@ function setupDropzone(dropzone, input, type, successCallback) {
 }
 
 function handleFileSelection(file, type, callback) {
-    const sizeLimit = 100 * 1024 * 1024;
+    const sizeLimit = 500 * 1024 * 1024;
     if (file.size > sizeLimit) {
-        alert('File exceeds 100MB upload limit.');
+        alert('File exceeds 500MB upload limit.');
         return;
     }
     const ext = file.name.split('.').pop().toLowerCase();
@@ -1813,27 +1831,45 @@ function removeForegroundImage() {
 }
 
 function loadCustomShapeImage(file) {
-    const img = new Image();
-    const url = URL.createObjectURL(file);
-    img.src = url;
-    img.onload = () => {
-        if (state.visuals.customShapeImageUrl) URL.revokeObjectURL(state.visuals.customShapeImageUrl);
+    elements.canvasLoader.style.display = 'flex';
+    elements.loaderMessage.innerText = 'Uploading custom shape image...';
+
+    const formData = new FormData();
+    formData.append('file', file);
+    formData.append('type', 'image');
+
+    fetch('/api/upload', {
+        method: 'POST',
+        body: formData
+    })
+    .then(res => res.json())
+    .then(data => {
+        if (data.error) throw new Error(data.error);
+        return new Promise((resolve, reject) => {
+            const img = new Image();
+            img.onload = () => resolve({ img, data });
+            img.onerror = () => reject(new Error('Failed to load uploaded custom shape image.'));
+            img.src = data.url;
+        });
+    })
+    .then(({ img, data }) => {
         state.visuals.customShapeImage = img;
         state.visuals.customShapeImageName = file.name;
-        state.visuals.customShapeImageUrl = url;
+        state.visuals.customShapeImageUrl = data.url;
         elements.customShapeDropzone.style.display = 'none';
         elements.customShapeBanner.style.display = 'flex';
         elements.customShapeName.innerText = file.name;
+        elements.canvasLoader.style.display = 'none';
         triggerRedraw();
-    };
-    img.onerror = () => {
-        URL.revokeObjectURL(url);
-        alert('Failed to load image. Please try a PNG or WEBP file.');
-    };
+    })
+    .catch(err => {
+        console.error(err);
+        elements.canvasLoader.style.display = 'none';
+        alert(`Failed to load custom shape image: ${err.message}`);
+    });
 }
 
 function removeCustomShapeImage() {
-    if (state.visuals.customShapeImageUrl) URL.revokeObjectURL(state.visuals.customShapeImageUrl);
     state.visuals.customShapeImage = null;
     state.visuals.customShapeImageName = '';
     state.visuals.customShapeImageUrl = null;
@@ -2159,6 +2195,174 @@ function initFXControls() {
     if (state.fx.cameraDrift) elements.fxCameraDriftControls.classList.add('open');
 }
 
+// === Template save/load system ===
+function clonePlainObject(value) {
+    return JSON.parse(JSON.stringify(value));
+}
+
+function buildTemplatePayload() {
+    const visuals = clonePlainObject(state.visuals);
+    [
+        'bgImage',
+        'bgImageName',
+        'bgImageUrl',
+        'bgVideo',
+        'fgImage',
+        'fgImageName',
+        'fgImageUrl',
+        'fgVideo',
+        'customShapeImage',
+        'customShapeImageName',
+        'customShapeImageUrl',
+        'particles'
+    ].forEach(key => delete visuals[key]);
+
+    return {
+        version: 1,
+        savedAt: new Date().toISOString(),
+        settings: {
+            audio: {
+                volume: state.audio.volume,
+                synthActive: state.audio.synthActive
+            },
+            visuals,
+            fx: clonePlainObject(state.fx),
+            text: clonePlainObject(state.text),
+            export: {
+                method: state.export.method
+            }
+        }
+    };
+}
+
+function mergeTemplateSettings(settings) {
+    if (!settings || typeof settings !== 'object') return;
+    const payload = settings.settings || settings;
+
+    if (payload.audio && typeof payload.audio === 'object') {
+        if (typeof payload.audio.volume === 'number') state.audio.volume = payload.audio.volume;
+        if (typeof payload.audio.synthActive === 'boolean') state.audio.synthActive = payload.audio.synthActive;
+    }
+    if (payload.visuals && typeof payload.visuals === 'object') {
+        const visuals = clonePlainObject(payload.visuals);
+        [
+            'bgImage',
+            'bgImageName',
+            'bgImageUrl',
+            'bgVideo',
+            'fgImage',
+            'fgImageName',
+            'fgImageUrl',
+            'fgVideo',
+            'customShapeImage',
+            'customShapeImageName',
+            'customShapeImageUrl',
+            'particles'
+        ].forEach(key => delete visuals[key]);
+        Object.assign(state.visuals, visuals);
+    }
+    if (payload.fx && typeof payload.fx === 'object') Object.assign(state.fx, payload.fx);
+    if (payload.text && typeof payload.text === 'object') Object.assign(state.text, payload.text);
+    if (payload.export && typeof payload.export.method === 'string') state.export.method = payload.export.method;
+}
+
+function refreshTemplateSelect(templates) {
+    if (!elements.templateSelect) return;
+    const current = elements.templateSelect.value;
+    elements.templateSelect.innerHTML = '<option value="">Templates</option>';
+    templates.forEach(template => {
+        const option = document.createElement('option');
+        option.value = template.name;
+        option.textContent = template.name;
+        elements.templateSelect.appendChild(option);
+    });
+    if (current && templates.some(template => template.name === current)) {
+        elements.templateSelect.value = current;
+    }
+}
+
+async function loadTemplateList() {
+    if (!elements.templateSelect) return;
+    try {
+        const response = await fetch('/api/templates');
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.error || 'Failed to list templates');
+        refreshTemplateSelect(data.templates || []);
+    } catch (err) {
+        console.error('Template list failed:', err);
+    }
+}
+
+function setTemplateControlsDisabled(disabled) {
+    [elements.templateSelect, elements.btnSaveTemplate, elements.btnLoadTemplate].forEach(control => {
+        if (control) control.disabled = disabled;
+    });
+}
+
+async function saveTemplateFromCurrentSettings() {
+    const defaultName = elements.templateSelect && elements.templateSelect.value ? elements.templateSelect.value : 'AuraWave Template';
+    const name = prompt('Template name:', defaultName);
+    if (!name) return;
+
+    setTemplateControlsDisabled(true);
+    try {
+        const response = await fetch('/api/templates', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                name,
+                template: buildTemplatePayload()
+            })
+        });
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.error || 'Failed to save template');
+        await loadTemplateList();
+        if (elements.templateSelect) elements.templateSelect.value = data.name;
+        alert(`Saved template: ${data.name}`);
+    } catch (err) {
+        console.error('Template save failed:', err);
+        alert(`Failed to save template: ${err.message}`);
+    } finally {
+        setTemplateControlsDisabled(false);
+    }
+}
+
+async function loadSelectedTemplate() {
+    if (!elements.templateSelect || !elements.templateSelect.value) {
+        alert('Choose a template to load first.');
+        return;
+    }
+
+    setTemplateControlsDisabled(true);
+    try {
+        const name = elements.templateSelect.value;
+        const response = await fetch(`/api/templates/${encodeURIComponent(name)}`);
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.error || 'Failed to load template');
+        mergeTemplateSettings(data);
+        syncDOMToState();
+        setupParticles();
+        resizeCanvas();
+        triggerRedraw();
+        alert(`Loaded template: ${name}`);
+    } catch (err) {
+        console.error('Template load failed:', err);
+        alert(`Failed to load template: ${err.message}`);
+    } finally {
+        setTemplateControlsDisabled(false);
+    }
+}
+
+function setupTemplateControls() {
+    if (elements.btnSaveTemplate) {
+        elements.btnSaveTemplate.addEventListener('click', saveTemplateFromCurrentSettings);
+    }
+    if (elements.btnLoadTemplate) {
+        elements.btnLoadTemplate.addEventListener('click', loadSelectedTemplate);
+    }
+    loadTemplateList();
+}
+
 // === Settings Persistence system via localStorage ===
 function saveSettingsToLocalStorage() {
     // Disabled to prevent cache conflicts
@@ -2173,6 +2377,17 @@ function loadSettingsFromLocalStorage() {
 }
 
 function syncDOMToState() {
+    // 0. Sync top-level audio controls
+    if (elements.volumeControl) {
+        elements.volumeControl.value = state.audio.volume;
+    }
+    if (elements.synthToggle) {
+        elements.synthToggle.checked = state.audio.synthActive;
+    }
+    if (elements.synthOptions) {
+        elements.synthOptions.classList.toggle('open', state.audio.synthActive);
+    }
+
     // 1. Sync Waveform Customizer Inputs
     if (elements.waveformColor && state.visuals.color && state.visuals.color.startsWith('#')) {
         elements.waveformColor.value = state.visuals.color;
@@ -2379,6 +2594,12 @@ function syncDOMToState() {
     if (elements.fxGlitchSlices) {
         elements.fxGlitchSlices.value = state.fx.glitchSlices;
         elements.glitchSlicesVal.innerText = `${state.fx.glitchSlices}`;
+    }
+    if (elements.fxGlitchSpeed) {
+        elements.fxGlitchSpeed.value = state.fx.glitchSpeed !== undefined ? state.fx.glitchSpeed : 1.0;
+        if (elements.glitchSpeedVal) {
+            elements.glitchSpeedVal.innerText = `${(state.fx.glitchSpeed !== undefined ? state.fx.glitchSpeed : 1.0).toFixed(1)}x`;
+        }
     }
 
     // Heat Shimmer sync
@@ -2631,6 +2852,16 @@ function syncDOMToState() {
     }
     if (elements.barClassicColors) {
         elements.barClassicColors.checked = state.visuals.classicColors;
+    }
+
+    if (elements.optClient) {
+        elements.optClient.classList.toggle('active', state.export.method === 'client');
+    }
+    if (elements.optServer) {
+        elements.optServer.classList.toggle('active', state.export.method === 'server');
+    }
+    if (elements.fastClientRenderToggle) {
+        elements.fastClientRenderToggle.checked = state.export.method === 'client';
     }
 
     // Dynamic GPU acceleration check
