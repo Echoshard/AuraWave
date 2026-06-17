@@ -1,0 +1,5 @@
+# Optional production-quality subtitle tooling.
+# Install these in addition to requirements.txt when you want real stem splitting
+# and forced lyrics alignment instead of the editable draft fallback.
+demucs>=4.0.1
+stable-ts>=2.19.0

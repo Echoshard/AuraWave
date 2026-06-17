@@ -240,10 +240,18 @@
     left: 0;
     top: 0;
     height: 100%;
-    width: 0%;
+    width: 100%;
     background: linear-gradient(to right, var(--primary), var(--accent-cyan));
     border-radius: 10px;
     box-shadow: 0 0 6px var(--primary-glow);
+    transform: scaleX(0);
+    transform-origin: left center;
+    transition: transform 90ms linear;
+    will-change: transform;
+}
+
+.progress-bar.no-transition {
+    transition: none;
 }
 
 .volume-container {

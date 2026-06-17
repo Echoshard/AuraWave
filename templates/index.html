@@ -11,7 +11,7 @@
     <!-- FontAwesome for Premium Icons -->
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <!-- Custom Stylesheet -->
-    <link rel="stylesheet" href="/static/css/styles.css">
+    <link rel="stylesheet" href="/static/css/styles.css?v={{ range(1, 100000) | random }}">
 </head>
 <body>
     <!-- Animated Glowing Background Mesh -->
@@ -59,6 +59,9 @@
                 <div class="panel-tabs">
                     <button class="tab-btn active" data-target="tab-media">
                         <i class="fa-solid fa-photo-film"></i> Media
+                    </button>
+                    <button class="tab-btn" data-target="tab-lyrics">
+                        <i class="fa-solid fa-closed-captioning"></i> Lyrics
                     </button>
                     <button class="tab-btn" data-target="tab-waveform">
                         <i class="fa-solid fa-wave-square"></i> Waveform
@@ -237,7 +240,170 @@
                         </div>
                     </div>
 
-                    <!-- Tab 2: Waveform Visualizer -->
+                    <!-- Tab 2: Lyrics & Subtitles -->
+                    <div class="tab-pane" id="tab-lyrics">
+                        <h2 class="section-title"><i class="fa-solid fa-closed-captioning"></i> Lyrics & Subtitles</h2>
+
+                        <div class="subtitle-command-strip">
+                            <div class="setting-group-row subtitle-action-row">
+                                <button class="render-trigger-btn compact-action subtitle-first-run-pulse" id="btn-generate-subtitles">
+                                    <i class="fa-solid fa-wand-magic-sparkles"></i> Generate
+                                </button>
+                                <button class="render-trigger-btn compact-action secondary-action" id="btn-adjust-subtitles" disabled>
+                                    <i class="fa-solid fa-sliders"></i> Apply Timing
+                                </button>
+                            </div>
+
+                            <div class="subtitle-status" id="subtitle-status">
+                                <span id="subtitle-status-text">No subtitle job loaded.</span>
+                                <div class="subtitle-progress-track">
+                                    <div class="subtitle-progress-fill" id="subtitle-progress-fill"></div>
+                                </div>
+                            </div>
+
+                            <div class="subtitle-capabilities" id="subtitle-capabilities">Checking subtitle tools...</div>
+                            <div class="subtitle-output-list" id="subtitle-output-list"></div>
+                        </div>
+
+                        <div class="setting-group subtitle-lyrics-group">
+                            <label class="setting-label">Lyrics</label>
+                            <textarea id="lyrics-input" class="lyrics-textarea" rows="12" spellcheck="false" placeholder="Paste lyrics here"></textarea>
+                            <input type="file" id="lyrics-file-input" accept=".txt,text/plain" style="display: none;">
+                            <button class="render-trigger-btn compact-action secondary-action" id="btn-import-lyrics" type="button">
+                                <i class="fa-solid fa-file-import"></i> Import .txt
+                            </button>
+                        </div>
+
+                        <div class="setting-group subtitle-toggles-group">
+                            <div class="toggle-row">
+                                <span>Canvas Overlay</span>
+                                <label class="toggle-switch">
+                                    <input type="checkbox" id="subtitle-enabled">
+                                    <span class="slider"></span>
+                                </label>
+                            </div>
+                            <div class="toggle-row">
+                                <span>Stem Split First</span>
+                                <label class="toggle-switch">
+                                    <input type="checkbox" id="subtitle-split-stems">
+                                    <span class="slider"></span>
+                                </label>
+                            </div>
+                            <div class="toggle-row">
+                                <span>Require Production Tools</span>
+                                <label class="toggle-switch">
+                                    <input type="checkbox" id="subtitle-require-production">
+                                    <span class="slider"></span>
+                                </label>
+                            </div>
+                        </div>
+
+                        <div class="setting-group-row subtitle-provider-row">
+                            <div class="setting-group" style="flex: 1;">
+                                <label class="setting-label">Alignment</label>
+                                <select id="subtitle-alignment-provider" class="select-input">
+                                    <option value="auto">Auto</option>
+                                    <option value="stable-whisper">Stable Whisper</option>
+                                    <option value="proportional">Editable Draft</option>
+                                </select>
+                            </div>
+                            <div class="setting-group" style="flex: 1;">
+                                <label class="setting-label">Stems</label>
+                                <select id="subtitle-stem-provider" class="select-input">
+                                    <option value="auto">Auto</option>
+                                    <option value="demucs">Demucs</option>
+                                    <option value="ffmpeg-vocal">FFmpeg Vocal Ref</option>
+                                    <option value="original">Original Track</option>
+                                </select>
+                            </div>
+                        </div>
+
+                        <div class="setting-group-row subtitle-model-row">
+                            <div class="setting-group" style="flex: 1;">
+                                <label class="setting-label">Language</label>
+                                <input type="text" id="subtitle-language" class="text-input" value="en" maxlength="12">
+                            </div>
+                            <div class="setting-group" style="flex: 1;">
+                                <label class="setting-label">Model</label>
+                                <select id="subtitle-model" class="select-input">
+                                    <option value="base">base</option>
+                                    <option value="small">small</option>
+                                    <option value="medium">medium</option>
+                                </select>
+                            </div>
+                            <div class="setting-group" style="flex: 1;">
+                                <label class="setting-label">Device</label>
+                                <select id="subtitle-device" class="select-input">
+                                    <option value="auto">auto</option>
+                                    <option value="cpu">cpu</option>
+                                    <option value="cuda">cuda</option>
+                                </select>
+                            </div>
+                        </div>
+
+                        <div class="setting-group-row subtitle-style-row">
+                            <div class="setting-group" style="flex: 1;">
+                                <label class="setting-label">Karaoke Detail</label>
+                                <select id="subtitle-karaoke-granularity" class="select-input">
+                                    <option value="expressive" selected>Expressive Holds</option>
+                                    <option value="syllable">Syllable-ish</option>
+                                    <option value="word">Word</option>
+                                </select>
+                            </div>
+                            <div class="setting-group" style="flex: 1;">
+                                <label class="setting-label">Subtitle Style</label>
+                                <select id="subtitle-style-preset" class="select-input">
+                                    <option value="pretty">Pretty</option>
+                                    <option value="minimal">Minimal</option>
+                                </select>
+                            </div>
+                        </div>
+
+                        <div class="setting-group subtitle-position-group">
+                            <label class="setting-label">Canvas Position</label>
+                            <div class="subtitle-position-control" id="subtitle-position-control">
+                                <button type="button" class="subtitle-position-btn" data-subtitle-position="top" title="Place subtitles near the top">
+                                    <i class="fa-solid fa-arrow-up"></i><span>Top</span>
+                                </button>
+                                <button type="button" class="subtitle-position-btn" data-subtitle-position="center" title="Place subtitles in the center">
+                                    <i class="fa-solid fa-arrows-to-dot"></i><span>Center</span>
+                                </button>
+                                <button type="button" class="subtitle-position-btn active" data-subtitle-position="bottom" title="Place subtitles near the bottom">
+                                    <i class="fa-solid fa-arrow-down"></i><span>Bottom</span>
+                                </button>
+                            </div>
+                        </div>
+
+                        <div class="setting-group subtitle-offset-group">
+                            <label class="setting-label-row">
+                                <span class="setting-label-with-help">
+                                    Shift All
+                                    <button type="button" class="subtitle-info-btn" title="Moves every subtitle earlier or later by the same amount. Negative values make lyrics appear earlier; positive values make them appear later.">
+                                        <i class="fa-solid fa-circle-info"></i>
+                                    </button>
+                                </span>
+                                <span class="val-display" id="subtitle-offset-val">0.00s</span>
+                            </label>
+                            <input type="range" id="subtitle-offset" min="-5" max="5" step="0.05" value="0" class="slider-input" title="Shift every subtitle earlier or later together.">
+                        </div>
+
+                        <div class="setting-group subtitle-scale-group">
+                            <label class="setting-label-row">
+                                <span class="setting-label-with-help">
+                                    Stretch Drift
+                                    <button type="button" class="subtitle-info-btn" title="Stretches or compresses the whole subtitle timeline. Use this when timing starts close but slowly drifts late or early over the song.">
+                                        <i class="fa-solid fa-circle-info"></i>
+                                    </button>
+                                </span>
+                                <span class="val-display" id="subtitle-scale-val">1.000x</span>
+                            </label>
+                            <input type="range" id="subtitle-scale" min="0.9" max="1.1" step="0.001" value="1" class="slider-input" title="Stretch timings below 1.000x to end earlier, or above 1.000x to end later.">
+                        </div>
+
+                        <div class="subtitle-editor" id="subtitle-editor"></div>
+                    </div>
+
+                    <!-- Tab 3: Waveform Visualizer -->
                     <div class="tab-pane" id="tab-waveform">
                         <h2 class="section-title">Waveform settings</h2>
                         
@@ -1298,7 +1464,20 @@
                             <input type="range" id="volume-control" min="0" max="1" step="0.05" value="0.7">
                         </div>
                     </div>
+                    <div class="subtitle-overview" id="subtitle-overview" aria-label="Full subtitle timeline overview">
+                        <canvas id="subtitle-overview-canvas" width="1440" height="64"></canvas>
+                    </div>
                 </div>
+
+                <aside class="subtitle-inspector glass-card" id="subtitle-inspector" aria-label="Selected subtitle timing editor">
+                    <div class="subtitle-inspector-header">
+                        <h2 class="section-title"><i class="fa-solid fa-sliders"></i> Timing Inspector</h2>
+                        <span class="subtitle-inspector-summary" id="subtitle-inspector-summary">No line selected</span>
+                    </div>
+                    <div class="subtitle-inspector-body" id="subtitle-inspector-body">
+                        <div class="subtitle-editor-empty">Generate subtitles, then select a clip on the waveform.</div>
+                    </div>
+                </aside>
 
                 <!-- Export & Compiling Panel (Glass Card) -->
                 <div class="export-panel glass-card">
@@ -1315,6 +1494,46 @@
                             <i class="fa-solid fa-film"></i> Render Full Video
                         </button>
                     </div>
+                </div>
+            </section>
+
+            <section class="subtitle-daw glass-card" id="subtitle-timeline-panel" aria-label="Subtitle waveform timing editor">
+                <div class="subtitle-daw-toolbar">
+                    <div class="subtitle-daw-title">
+                        <i class="fa-solid fa-wave-square"></i>
+                        <span>Waveform Timing</span>
+                    </div>
+                    <div class="subtitle-timeline-readout" id="subtitle-timeline-readout">No subtitle line selected.</div>
+                    <label class="subtitle-zoom-control">
+                        <span>Zoom</span>
+                        <input type="range" id="subtitle-timeline-zoom" min="0.2" max="4" step="0.05" value="1">
+                    </label>
+                    <label class="subtitle-speed-control" title="Playback speed for timing edits. Export and render timing stay unchanged.">
+                        <span><i class="fa-solid fa-gauge-low"></i> Playback</span>
+                        <select id="subtitle-playback-rate" title="Slow playback for subtitle timing edits. Export and render timing stay unchanged.">
+                            <option value="0.25">0.25x</option>
+                            <option value="0.5">0.5x</option>
+                            <option value="0.75">0.75x</option>
+                            <option value="1" selected>1x</option>
+                            <option value="1.25">1.25x</option>
+                        </select>
+                    </label>
+                    <button type="button" class="subtitle-daw-btn" id="btn-subtitle-snap-start" title="Snap selected line start to playhead">
+                        <i class="fa-solid fa-backward-step"></i><span>Start</span>
+                    </button>
+                    <button type="button" class="subtitle-daw-btn" id="btn-subtitle-snap-end" title="Snap selected line end to playhead">
+                        <i class="fa-solid fa-forward-step"></i><span>End</span>
+                    </button>
+                    <button type="button" class="subtitle-daw-btn" id="btn-subtitle-cleanup" title="Sort lines and remove timing overlaps">
+                        <i class="fa-solid fa-broom"></i><span>Clean</span>
+                    </button>
+                    <button type="button" class="subtitle-daw-btn subtitle-save-btn" id="btn-save-subtitle-edits" disabled>
+                        <i class="fa-solid fa-floppy-disk"></i><span>Save</span>
+                    </button>
+                </div>
+                <div class="subtitle-timeline-scroll" id="subtitle-timeline-scroll">
+                    <canvas id="subtitle-timeline-canvas" width="1440" height="360"></canvas>
+                    <div class="subtitle-timeline-playhead" id="subtitle-timeline-playhead" aria-hidden="true"></div>
                 </div>
             </section>
         </main>
@@ -1460,6 +1679,7 @@
     <script src="/static/js/core.js?v={{ range(1, 100000) | random }}"></script>
     <script src="/static/js/synth.js?v={{ range(1, 100000) | random }}"></script>
     <script src="/static/js/visualizer.js?v={{ range(1, 100000) | random }}"></script>
+    <script src="/static/js/subtitles.js?v={{ range(1, 100000) | random }}"></script>
     <script src="/static/js/interaction.js?v={{ range(1, 100000) | random }}"></script>
     <script src="/static/js/vendor/webm-muxer.js?v={{ range(1, 100000) | random }}"></script>
     <script src="/static/js/export.js?v={{ range(1, 100000) | random }}"></script>

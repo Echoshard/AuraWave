@@ -12,6 +12,7 @@ const state = {
         currentTime: 0,
         isPlaying: false,
         volume: 0.7,
+        playbackRate: 1.0,
         file: null,
         fileName: '',
         synthActive: false,
@@ -153,6 +154,20 @@ const state = {
         glowEnabled: false,
         glowStrength: 1.0
     },
+    subtitles: {
+        enabled: false,
+        jobId: null,
+        lines: [],
+        outputs: [],
+        stems: [],
+        offsetSeconds: 0,
+        timingScale: 1.0,
+        fontSize: 68,
+        position: 'bottom',
+        color: '#ffffff',
+        highlightColor: '#38d5ff',
+        shadow: true
+    },
     export: {
         method: 'client', // client or server
         recorder: null,
@@ -166,6 +181,8 @@ const state = {
 const elements = {};
 let ctx = null;
 let animationId = null;
+let transportAnimationId = null;
+let lastTransportLabelSecond = -1;
 let bassMovingAverage = 0;
 let pulseScale = 1.0;
 
@@ -179,8 +196,8 @@ function formatTime(secs) {
 function resetPlayerUI() {
     elements.timeCurr.innerText = '0:00';
     elements.timeTotal.innerText = formatTime(state.audio.duration);
-    elements.playerProgress.style.width = '0%';
     state.audio.currentTime = 0;
+    updatePlayerTransport(0, { forceLabel: true, immediate: true });
 }
 
 // Global script splits helper split
@@ -479,6 +496,17 @@ document.addEventListener('DOMContentLoaded', () => {
             btn.classList.add('active');
             const target = btn.dataset.target;
             document.getElementById(target).classList.add('active');
+            const visualizerWorkspace = document.getElementById('visualizer-workspace');
+            document.body.classList.toggle('subtitle-editor-mode', target === 'tab-lyrics');
+            if (visualizerWorkspace) {
+                visualizerWorkspace.classList.toggle('subtitle-workspace-active', target === 'tab-lyrics');
+            }
+            if (target === 'tab-lyrics' && typeof window.renderSubtitleTimeline === 'function') {
+                window.requestAnimationFrame(() => {
+                    window.renderSubtitleTimeline();
+                    window.setTimeout(() => window.renderSubtitleTimeline(), 60);
+                });
+            }
         });
     });
 
@@ -518,20 +546,10 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     // Audio basic controls
-    elements.btnPlay.addEventListener('click', () => {
-        if (state.audio.synthActive) return;
-        if (state.audio.isPlaying) {
-            stopAudio();
-        } else {
-            if (state.audio.buffer) {
-                playAudio();
-            } else {
-                alert("Please upload an audio file or toggle the Built-in Synth Demo!");
-            }
-        }
-    });
+    elements.btnPlay.addEventListener('click', toggleAudioPlayback);
 
     elements.overlayPlayBtn.addEventListener('click', () => elements.btnPlay.click());
+    document.addEventListener('keydown', handleGlobalPlaybackShortcuts);
 
     elements.volumeControl.addEventListener('input', (e) => {
         const val = parseFloat(e.target.value);
@@ -552,8 +570,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const playingNow = state.audio.isPlaying;
         stopAudio();
         state.audio.currentTime = targetTime;
-        elements.playerProgress.style.width = `${ratio * 100}%`;
-        elements.timeCurr.innerText = formatTime(targetTime);
+        updatePlayerTransport(targetTime, { forceLabel: true, immediate: true });
         if (playingNow) playAudio();
     });
 
@@ -1826,6 +1843,146 @@ function removeCustomShapeImage() {
     triggerRedraw();
 }
 
+function toggleAudioPlayback() {
+    if (state.audio.synthActive) return;
+    if (state.audio.isPlaying) {
+        stopAudio();
+        return;
+    }
+    if (state.audio.buffer) {
+        playAudio();
+    } else {
+        alert("Please upload an audio file or toggle the Built-in Synth Demo!");
+    }
+}
+
+function handleGlobalPlaybackShortcuts(event) {
+    if (event.defaultPrevented || event.repeat) return;
+    if (event.code !== 'Space' && event.key !== ' ') return;
+    if (!isSubtitlePlaybackShortcutContext()) return;
+    if (isPlaybackShortcutEditableTarget(event.target)) return;
+
+    event.preventDefault();
+    toggleAudioPlayback();
+}
+
+function isSubtitlePlaybackShortcutContext() {
+    if (!document.body.classList.contains('subtitle-editor-mode')) return false;
+    const lyricsPane = document.getElementById('tab-lyrics');
+    const workspace = document.getElementById('visualizer-workspace');
+    if (!lyricsPane || !lyricsPane.classList.contains('active') || !workspace) return false;
+    return window.getComputedStyle(workspace).display !== 'none';
+}
+
+function isPlaybackShortcutEditableTarget(target) {
+    if (!target || target === document.body) return false;
+    if (target.isContentEditable) return true;
+    const editable = target.closest && target.closest('textarea, [contenteditable="true"], input');
+    if (!editable) return false;
+    if (editable.tagName && editable.tagName.toLowerCase() === 'textarea') return true;
+    if (editable.isContentEditable) return true;
+    const type = String(editable.getAttribute('type') || 'text').toLowerCase();
+    return [
+        'text',
+        'search',
+        'email',
+        'url',
+        'tel',
+        'password',
+        'number'
+    ].includes(type);
+}
+
+function syncAudioPlaybackTime() {
+    if (!state.audio.isPlaying || !state.audio.context || !Number.isFinite(state.audio.startTime) || state.audio.synthActive) {
+        return state.audio.currentTime || 0;
+    }
+    const rate = getAudioPlaybackRate();
+    const current = (state.audio.context.currentTime - state.audio.startTime) * rate;
+    state.audio.currentTime = Math.max(0, Math.min(current, state.audio.duration || current));
+    return state.audio.currentTime;
+}
+
+function getAudioPlaybackRate() {
+    const rate = Number(state.audio.playbackRate || 1);
+    return Number.isFinite(rate) ? Math.max(0.25, Math.min(2, rate)) : 1;
+}
+
+function setAudioPlaybackRate(rate) {
+    const nextRate = Math.max(0.25, Math.min(2, Number(rate || 1)));
+    if (!Number.isFinite(nextRate)) return getAudioPlaybackRate();
+
+    const previousRate = getAudioPlaybackRate();
+    if (Math.abs(previousRate - nextRate) < 0.001) return nextRate;
+
+    const current = syncAudioPlaybackTime();
+    state.audio.playbackRate = nextRate;
+
+    if (state.audio.isPlaying && state.audio.source && state.audio.context && !state.audio.synthActive) {
+        try {
+            state.audio.source.playbackRate.setValueAtTime(nextRate, state.audio.context.currentTime);
+            state.audio.startTime = state.audio.context.currentTime - (current / nextRate);
+        } catch (error) {
+            const wasPlaying = state.audio.isPlaying;
+            stopAudio();
+            state.audio.currentTime = current;
+            if (wasPlaying) playAudio();
+        }
+    }
+
+    updatePlayerTransport(current, { forceLabel: true, immediate: true });
+    if (typeof window.updateSubtitleTimelineReadout === 'function') {
+        window.updateSubtitleTimelineReadout();
+    }
+    return nextRate;
+}
+
+function updatePlayerTransport(time = state.audio.currentTime || 0, options = {}) {
+    if (!elements.playerProgress || !elements.timeCurr) return;
+
+    const duration = Number(state.audio.duration || 0);
+    const safeTime = Math.max(0, Number(time || 0));
+    const ratio = duration > 0 ? Math.max(0, Math.min(1, safeTime / duration)) : 0;
+    const labelSecond = Math.floor(safeTime);
+
+    if (options.immediate) {
+        elements.playerProgress.classList.add('no-transition');
+    }
+    elements.playerProgress.style.width = '100%';
+    elements.playerProgress.style.transform = `scaleX(${ratio})`;
+    if (options.immediate) {
+        elements.playerProgress.offsetHeight;
+        elements.playerProgress.classList.remove('no-transition');
+    }
+
+    if (options.forceLabel || labelSecond !== lastTransportLabelSecond) {
+        elements.timeCurr.innerText = formatTime(safeTime);
+        lastTransportLabelSecond = labelSecond;
+    }
+}
+
+function startTransportLoop() {
+    if (transportAnimationId) return;
+    const tick = () => {
+        if (!state.audio.isPlaying || state.audio.synthActive) {
+            transportAnimationId = null;
+            updatePlayerTransport(state.audio.currentTime || 0, { forceLabel: true });
+            return;
+        }
+        const current = syncAudioPlaybackTime();
+        updatePlayerTransport(current);
+        transportAnimationId = requestAnimationFrame(tick);
+    };
+    transportAnimationId = requestAnimationFrame(tick);
+}
+
+function stopTransportLoop() {
+    if (transportAnimationId) {
+        cancelAnimationFrame(transportAnimationId);
+        transportAnimationId = null;
+    }
+}
+
 // Web Audio Standard Playback Pipeline
 function playAudio() {
     if (!state.audio.buffer) return;
@@ -1847,18 +2004,24 @@ function playAudio() {
     state.audio.analyser.smoothingTimeConstant = state.visuals.smoothing;
     state.audio.source = state.audio.context.createBufferSource();
     state.audio.source.buffer = state.audio.buffer;
+    state.audio.source.playbackRate.setValueAtTime(getAudioPlaybackRate(), state.audio.context.currentTime);
     state.audio.source.connect(state.audio.analyser);
     
     const startOffset = state.audio.currentTime;
     state.audio.source.start(0, startOffset);
-    state.audio.startTime = state.audio.context.currentTime - startOffset;
+    state.audio.startTime = state.audio.context.currentTime - (startOffset / getAudioPlaybackRate());
+    updatePlayerTransport(startOffset, { forceLabel: true, immediate: true });
+    startTransportLoop();
+    if (typeof window.startSubtitlePlayheadLoop === 'function') {
+        window.startSubtitlePlayheadLoop();
+    }
     
     if (!animationId) drawLoop();
 
     state.audio.source.onended = () => {
         if (state.audio.isPlaying && !state.export.isRecording) {
-            const elapsed = state.audio.context.currentTime - state.audio.startTime;
-            if (elapsed >= state.audio.duration - 0.2) {
+            const current = syncAudioPlaybackTime();
+            if (current >= state.audio.duration - 0.2) {
                 stopAudio();
             }
         }
@@ -1873,10 +2036,15 @@ function stopAudio() {
         state.audio.source = null;
     }
     if (state.audio.startTime && state.audio.context) {
-        state.audio.currentTime = state.audio.context.currentTime - state.audio.startTime;
+        state.audio.currentTime = (state.audio.context.currentTime - state.audio.startTime) * getAudioPlaybackRate();
         if (state.audio.currentTime >= state.audio.duration) {
             state.audio.currentTime = 0;
         }
+    }
+    stopTransportLoop();
+    updatePlayerTransport(state.audio.currentTime || 0, { forceLabel: true, immediate: true });
+    if (typeof window.updateSubtitlePlayheadOverlay === 'function') {
+        window.updateSubtitlePlayheadOverlay();
     }
 }
 

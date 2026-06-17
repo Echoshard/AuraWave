@@ -507,6 +507,9 @@ async function runClientSideExport(previewMode = false) {
             if (dot > 0) baseName = baseName.substring(0, dot);
             finalForm.append('export_name', baseName + suffix);
         }
+        if (state.subtitles && state.subtitles.jobId) {
+            finalForm.append('subtitle_job_id', state.subtitles.jobId);
+        }
 
         const finalRes = await fetch(
             `/api/remux-finalize/${session_id}`,

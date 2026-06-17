@@ -3,9 +3,15 @@ import uuid
 import subprocess
 import logging
 import threading
+import time
+import importlib.util
+import shutil
+import sys
 from flask import Flask, render_template, request, jsonify, send_from_directory
-from werkzeug.utils import secure_filename
+from werkzeug.utils import secure_filename, safe_join
 from PIL import Image, ImageDraw, ImageFont
+
+from aurawave.subtitle_jobs import adjust_subtitle_job, edit_subtitle_job, run_subtitle_job
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -13,6 +19,8 @@ logger = logging.getLogger(__name__)
 
 # Global memory-based tracking for background render tasks
 render_tasks = {}
+# Global memory-based tracking for lyric/subtitle processing jobs
+subtitle_tasks = {}
 # In-progress chunked WebM upload sessions  {session_id: {'webm_path': str, 'bytes_written': int}}
 remux_sessions = {}
 
@@ -22,15 +30,31 @@ app = Flask(__name__)
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 UPLOAD_FOLDER = os.path.join(BASE_DIR, 'uploads')
 EXPORT_FOLDER = os.path.join(BASE_DIR, 'exports')
+SUBTITLE_EXPORT_FOLDER = os.path.join(EXPORT_FOLDER, 'subtitles')
 ALLOWED_IMAGE_EXTENSIONS = {'png', 'jpg', 'jpeg', 'webp', 'mp4', 'webm', 'mov'}
 ALLOWED_AUDIO_EXTENSIONS = {'mp3', 'wav', 'ogg', 'm4a', 'flac'}
 
 # Ensure folders exist
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 os.makedirs(EXPORT_FOLDER, exist_ok=True)
+os.makedirs(SUBTITLE_EXPORT_FOLDER, exist_ok=True)
 
 app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
 app.config['EXPORT_FOLDER'] = EXPORT_FOLDER
+
+
+def ensure_local_python_scripts_on_path():
+    """Expose venv console scripts such as demucs.exe when launched via python.exe."""
+    scripts_dir = os.path.dirname(sys.executable)
+    if not scripts_dir or not os.path.isdir(scripts_dir):
+        return
+    existing = os.environ.get('PATH', '').split(os.pathsep)
+    if any(os.path.normcase(item) == os.path.normcase(scripts_dir) for item in existing):
+        return
+    os.environ['PATH'] = scripts_dir + os.pathsep + os.environ.get('PATH', '')
+
+
+ensure_local_python_scripts_on_path()
 app.config['MAX_CONTENT_LENGTH'] = 600 * 1024 * 1024  # 600 MB — supports ~20 min at 4 Mbps
 
 def allowed_file(filename, allowed_set):
@@ -95,6 +119,311 @@ def serve_upload(filename):
 def serve_export(filename):
     return send_from_directory(app.config['EXPORT_FOLDER'], filename)
 
+
+def resolve_uploaded_file(filename):
+    """Resolve a client-provided upload basename inside UPLOAD_FOLDER."""
+    if not filename:
+        return None
+    safe_name = os.path.basename(str(filename))
+    resolved = safe_join(UPLOAD_FOLDER, safe_name)
+    if not resolved or not os.path.exists(resolved):
+        return None
+    return resolved
+
+
+def subtitle_job_dir(job_id):
+    safe_id = secure_filename(str(job_id))
+    if not safe_id or safe_id != str(job_id):
+        return None
+    resolved = safe_join(SUBTITLE_EXPORT_FOLDER, safe_id)
+    return resolved
+
+
+def attach_subtitle_output_urls(job_id, manifest):
+    output_manifest = dict(manifest)
+    outputs = []
+    for output in output_manifest.get('outputs', []):
+        filename = os.path.basename(output.get('filename', ''))
+        if not filename:
+            continue
+        item = dict(output)
+        item['url'] = f'/api/subtitles/jobs/{job_id}/outputs/{filename}'
+        outputs.append(item)
+    output_manifest['outputs'] = outputs
+    stems = []
+    for stem in output_manifest.get('stems', []):
+        filename = os.path.basename(stem.get('filename', ''))
+        if not filename:
+            continue
+        item = dict(stem)
+        item['url'] = f'/api/subtitles/jobs/{job_id}/stems/{filename}'
+        stems.append(item)
+    output_manifest['stems'] = stems
+    return output_manifest
+
+
+def resolve_subtitle_mux_file(job_id):
+    job_dir = subtitle_job_dir(job_id)
+    if not job_dir:
+        return None
+    subtitle_path = safe_join(job_dir, 'lyrics.srt')
+    if not subtitle_path or not os.path.exists(subtitle_path):
+        return None
+    return subtitle_path
+
+
+def build_remux_command(webm_path, mp4_path, audio_path=None, subtitle_path=None):
+    """Build FFmpeg command for MP4 output with optional audio and mov_text subtitles."""
+    cmd = ['ffmpeg', '-y', '-i', webm_path]
+    audio_index = None
+    subtitle_index = None
+
+    if audio_path and os.path.exists(audio_path):
+        audio_index = 1
+        cmd.extend(['-i', audio_path])
+
+    if subtitle_path and os.path.exists(subtitle_path):
+        subtitle_index = 1 + (1 if audio_index is not None else 0)
+        cmd.extend(['-i', subtitle_path])
+
+    cmd.extend(['-map', '0:v:0'])
+    if audio_index is not None:
+        cmd.extend(['-map', f'{audio_index}:a:0'])
+    if subtitle_index is not None:
+        cmd.extend(['-map', f'{subtitle_index}:0'])
+
+    cmd.extend([
+        '-c:v', 'libx264',
+        '-pix_fmt', 'yuv420p',
+        '-preset', 'fast',
+        '-crf', '18',
+    ])
+    if audio_index is not None:
+        cmd.extend(['-c:a', 'aac', '-b:a', '192k'])
+    if subtitle_index is not None:
+        cmd.extend(['-c:s', 'mov_text', '-metadata:s:s:0', 'language=eng'])
+    if audio_index is not None:
+        cmd.append('-shortest')
+    cmd.append(mp4_path)
+    return cmd
+
+
+@app.route('/api/subtitles/jobs', methods=['POST'])
+def create_subtitle_job():
+    """Create a background lyrics alignment/subtitle generation job."""
+    data = request.get_json(silent=True) or {}
+    audio_filename = data.get('audio_file')
+    lyrics_text = data.get('lyrics_text', '')
+    options = data.get('options') or {}
+
+    audio_path = resolve_uploaded_file(audio_filename)
+    if not audio_path:
+        return jsonify({'error': 'Uploaded audio file was not found.'}), 404
+
+    if not isinstance(lyrics_text, str) or not lyrics_text.strip():
+        return jsonify({'error': 'Lyrics text is required.'}), 400
+
+    if len(lyrics_text) > 250_000:
+        return jsonify({'error': 'Lyrics text is too large.'}), 400
+
+    job_id = uuid.uuid4().hex
+    job_dir = subtitle_job_dir(job_id)
+    try:
+        os.makedirs(job_dir, exist_ok=True)
+    except OSError as exc:
+        logger.exception("Could not create subtitle job directory: %s", job_dir)
+        return jsonify({'error': f'Could not create subtitle job directory: {exc}'}), 500
+
+    subtitle_tasks[job_id] = {
+        'status': 'processing',
+        'stage': 'queued',
+        'progress': 0,
+        'message': 'Subtitle job queued',
+        'error': None,
+        'result': None,
+        'created_at': time.time(),
+    }
+
+    def progress(stage, message, percent):
+        current = subtitle_tasks.get(job_id, {})
+        current.update({
+            'status': 'processing',
+            'stage': stage,
+            'progress': percent,
+            'message': message,
+            'error': None,
+        })
+        subtitle_tasks[job_id] = current
+
+    def worker():
+        try:
+            manifest = run_subtitle_job(
+                job_id=job_id,
+                audio_path=audio_path,
+                lyrics_text=lyrics_text,
+                job_dir=job_dir,
+                options=options,
+                duration_probe=get_audio_duration,
+                progress=progress,
+            )
+            subtitle_tasks[job_id] = {
+                'status': 'completed',
+                'stage': 'completed',
+                'progress': 100,
+                'message': 'Subtitle outputs are ready',
+                'error': None,
+                'result': attach_subtitle_output_urls(job_id, manifest),
+                'created_at': subtitle_tasks.get(job_id, {}).get('created_at', time.time()),
+                'completed_at': time.time(),
+            }
+        except Exception as exc:
+            logger.exception("Subtitle job failed: %s", job_id)
+            subtitle_tasks[job_id] = {
+                'status': 'failed',
+                'stage': 'failed',
+                'progress': subtitle_tasks.get(job_id, {}).get('progress', 0),
+                'message': 'Subtitle job failed',
+                'error': str(exc),
+                'result': None,
+                'created_at': subtitle_tasks.get(job_id, {}).get('created_at', time.time()),
+                'completed_at': time.time(),
+            }
+
+    threading.Thread(target=worker, daemon=True).start()
+    return jsonify({'status': 'processing', 'job_id': job_id})
+
+
+@app.route('/api/subtitles/jobs/<job_id>', methods=['GET'])
+def get_subtitle_job(job_id):
+    task = subtitle_tasks.get(job_id)
+    if task:
+        return jsonify(task)
+
+    job_dir = subtitle_job_dir(job_id)
+    manifest_path = safe_join(job_dir, 'job.json') if job_dir else None
+    if manifest_path and os.path.exists(manifest_path):
+        try:
+            import json
+            with open(manifest_path, 'r', encoding='utf-8') as handle:
+                manifest = json.load(handle)
+            return jsonify({
+                'status': 'completed',
+                'stage': 'completed',
+                'progress': 100,
+                'message': 'Subtitle outputs are ready',
+                'error': None,
+                'result': attach_subtitle_output_urls(job_id, manifest),
+            })
+        except Exception as exc:
+            return jsonify({'error': str(exc)}), 500
+
+    return jsonify({'error': 'Subtitle job not found.'}), 404
+
+
+@app.route('/api/subtitles/capabilities', methods=['GET'])
+def subtitle_capabilities():
+    return jsonify({
+        'ffmpeg': bool(shutil.which('ffmpeg')),
+        'ffprobe': bool(shutil.which('ffprobe')),
+        'demucs': bool(shutil.which('demucs')),
+        'stable_whisper': importlib.util.find_spec('stable_whisper') is not None,
+        'outputs': ['ass', 'ssa', 'srt', 'vtt', 'lrc', 'json'],
+        'alignment_providers': ['auto', 'stable-whisper', 'proportional'],
+        'stem_providers': ['auto', 'demucs', 'ffmpeg-vocal', 'original'],
+        'devices': ['auto', 'cpu', 'cuda'],
+        'karaoke_granularity': ['expressive', 'syllable', 'word'],
+        'style_presets': ['pretty', 'minimal'],
+    })
+
+
+@app.route('/api/subtitles/jobs/<job_id>/adjust', methods=['POST'])
+def adjust_subtitles(job_id):
+    data = request.get_json(silent=True) or {}
+    job_dir = subtitle_job_dir(job_id)
+    if not job_dir or not os.path.isdir(job_dir):
+        return jsonify({'error': 'Subtitle job not found.'}), 404
+
+    try:
+        manifest = adjust_subtitle_job(
+            job_id=job_id,
+            job_dir=job_dir,
+            offset_seconds=float(data.get('offset_seconds', 0.0) or 0.0),
+            timing_scale=float(data.get('timing_scale', 1.0) or 1.0),
+            anchor_seconds=float(data.get('anchor_seconds', 0.0) or 0.0),
+        )
+        result = attach_subtitle_output_urls(job_id, manifest)
+        subtitle_tasks[job_id] = {
+            **subtitle_tasks.get(job_id, {}),
+            'status': 'completed',
+            'stage': 'adjusted',
+            'progress': 100,
+            'message': 'Adjusted subtitle outputs are ready',
+            'error': None,
+            'result': result,
+        }
+        return jsonify({'status': 'completed', 'result': result})
+    except Exception as exc:
+        logger.exception("Subtitle adjustment failed: %s", job_id)
+        return jsonify({'error': str(exc)}), 500
+
+
+@app.route('/api/subtitles/jobs/<job_id>/edit', methods=['POST'])
+def edit_subtitles(job_id):
+    data = request.get_json(silent=True) or {}
+    job_dir = subtitle_job_dir(job_id)
+    if not job_dir or not os.path.isdir(job_dir):
+        return jsonify({'error': 'Subtitle job not found.'}), 404
+
+    try:
+        manifest = edit_subtitle_job(
+            job_id=job_id,
+            job_dir=job_dir,
+            lines_payload=data.get('lines', []),
+        )
+        result = attach_subtitle_output_urls(job_id, manifest)
+        subtitle_tasks[job_id] = {
+            **subtitle_tasks.get(job_id, {}),
+            'status': 'completed',
+            'stage': 'edited',
+            'progress': 100,
+            'message': 'Edited subtitle outputs are ready',
+            'error': None,
+            'result': result,
+        }
+        return jsonify({'status': 'completed', 'result': result})
+    except ValueError as exc:
+        return jsonify({'error': str(exc)}), 400
+    except Exception as exc:
+        logger.exception("Subtitle edit failed: %s", job_id)
+        return jsonify({'error': str(exc)}), 500
+
+
+@app.route('/api/subtitles/jobs/<job_id>/outputs/<filename>', methods=['GET'])
+def download_subtitle_output(job_id, filename):
+    job_dir = subtitle_job_dir(job_id)
+    safe_name = secure_filename(filename)
+    if not job_dir or safe_name != filename:
+        return jsonify({'error': 'Invalid subtitle output path.'}), 400
+    output_path = safe_join(job_dir, safe_name)
+    if not output_path or not os.path.exists(output_path):
+        return jsonify({'error': 'Subtitle output not found.'}), 404
+    return send_from_directory(job_dir, safe_name, as_attachment=True)
+
+
+@app.route('/api/subtitles/jobs/<job_id>/stems/<filename>', methods=['GET'])
+def download_subtitle_stem(job_id, filename):
+    job_dir = subtitle_job_dir(job_id)
+    safe_name = secure_filename(filename)
+    allowed = {'vocals.wav', 'accompaniment.wav'}
+    if not job_dir or safe_name != filename or safe_name not in allowed:
+        return jsonify({'error': 'Invalid stem output path.'}), 400
+    stem_dir = safe_join(job_dir, 'stems')
+    output_path = safe_join(stem_dir, safe_name) if stem_dir else None
+    if not output_path or not os.path.exists(output_path):
+        return jsonify({'error': 'Stem output not found.'}), 404
+    return send_from_directory(stem_dir, safe_name, as_attachment=True)
+
+
 @app.route('/api/clean', methods=['POST'])
 def clean_uploads():
     """Deletes all files inside the uploads folder."""
@@ -111,33 +440,10 @@ def clean_uploads():
         logger.error(f"Failed to clean uploads folder: {e}")
         return jsonify({'error': str(e)}), 500
 
-def run_remux_thread(w_path, m_path, t_id, a_path, a_del_path):
+def run_remux_thread(w_path, m_path, t_id, a_path, a_del_path, subtitle_path=None):
     """Run FFmpeg in a background thread to transcode WebM → H.264 MP4."""
     try:
-        if a_path and os.path.exists(a_path):
-            cmd = [
-                'ffmpeg', '-y',
-                '-i', w_path,
-                '-i', a_path,
-                '-c:v', 'libx264',
-                '-pix_fmt', 'yuv420p',
-                '-preset', 'fast',
-                '-crf', '18',
-                '-c:a', 'aac',
-                '-b:a', '192k',
-                '-shortest',
-                m_path
-            ]
-        else:
-            cmd = [
-                'ffmpeg', '-y',
-                '-i', w_path,
-                '-c:v', 'libx264',
-                '-pix_fmt', 'yuv420p',
-                '-preset', 'fast',
-                '-crf', '18',
-                m_path
-            ]
+        cmd = build_remux_command(w_path, m_path, a_path, subtitle_path)
         logger.info(f"Remuxing WebM to MP4: {' '.join(cmd)}")
         process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, bufsize=1)
         for line in iter(process.stdout.readline, ''):
@@ -214,7 +520,9 @@ def remux_video():
                 logger.info(f"Using server-side audio asset for remux: {audio_filename}")
             else:
                 logger.warning(f"Server-side audio asset not found: {audio_filename}")
-                
+
+    subtitle_path = resolve_subtitle_mux_file(request.form.get('subtitle_job_id', ''))
+
     # Initialize background task state
     render_tasks[task_id] = {
         'status': 'processing',
@@ -223,7 +531,7 @@ def remux_video():
         'last_log_line': 'FFmpeg remuxing and audio transcoding starting...'
     }
     
-    thread = threading.Thread(target=run_remux_thread, args=(webm_path, mp4_path, task_id, audio_path, audio_to_delete))
+    thread = threading.Thread(target=run_remux_thread, args=(webm_path, mp4_path, task_id, audio_path, audio_to_delete, subtitle_path))
     thread.start()
     
     return jsonify({
@@ -337,8 +645,10 @@ def remux_finalize(session_id):
         if os.path.exists(candidate):
             audio_path = candidate
 
+    subtitle_path = resolve_subtitle_mux_file(request.form.get('subtitle_job_id', ''))
+
     render_tasks[task_id] = {'status': 'processing', 'error': None, 'url': f'/exports/{task_id}', 'last_log_line': 'FFmpeg starting...'}
-    threading.Thread(target=run_remux_thread, args=(webm_path, mp4_path, task_id, audio_path, audio_to_delete)).start()
+    threading.Thread(target=run_remux_thread, args=(webm_path, mp4_path, task_id, audio_path, audio_to_delete, subtitle_path)).start()
     return jsonify({'status': 'processing', 'task_id': task_id, 'url': f'/exports/{task_id}'})
 
 

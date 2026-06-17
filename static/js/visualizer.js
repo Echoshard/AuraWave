@@ -1808,6 +1808,10 @@ function renderFrame() {
         ctx.restore();
     }
 
+    if (typeof window.drawSubtitleOverlay === 'function') {
+        window.drawSubtitleOverlay(ctx, width, height, state.audio.currentTime || 0);
+    }
+
     // --- Heat Shimmer / Mirage distortion ---
     if (state.fx.heat) {
         const amp = (state.fx.heatIntensity !== undefined ? state.fx.heatIntensity : 1.0) * 5.0;
@@ -2011,10 +2015,7 @@ function drawLoop() {
 
     // Track audio seek player position
     if (state.audio.isPlaying && state.audio.startTime && !state.audio.synthActive) {
-        const curr = state.audio.context.currentTime - state.audio.startTime;
-        state.audio.currentTime = Math.min(curr, state.audio.duration);
-        elements.timeCurr.innerText = formatTime(state.audio.currentTime);
-        elements.playerProgress.style.width = `${(state.audio.currentTime / state.audio.duration) * 100}%`;
+        syncAudioPlaybackTime();
     }
 
     renderFrame();
