@@ -988,6 +988,9 @@ async function runClientSideExport(previewMode = false, queueItem = null) {
                         if (dot > 0) baseName = baseName.substring(0, dot);
                         finalForm.append('export_name', baseName + suffix);
                     }
+                    if (state.subtitles && state.subtitles.jobId) {
+                        finalForm.append('subtitle_job_id', state.subtitles.jobId);
+                    }
 
                     const finalRes = await fetch(
                         `/api/remux-finalize/${session_id}`,
@@ -1295,7 +1298,7 @@ async function runDesktopNativeExport(previewMode = false, queueItem = null) {
             currentTimeDomain = extractTimeDomainBins(exportBuffer, time);
             if (exportBgVideo) await syncVideoToTime(exportBgVideo, time);
             if (exportFgVideo) await syncVideoToTime(exportFgVideo, time);
-            
+
             renderFrame();
 
             // Extract frame as high-quality JPEG base64 (fast and efficient transfer size)
@@ -1346,7 +1349,7 @@ async function runDesktopNativeExport(previewMode = false, queueItem = null) {
             elements.renderModalSub.innerText   = 'Your native video is ready.';
             elements.renderDetailsLog.innerText = 'Saved directly to exports folder!';
             if (spinner) spinner.classList.add('stopped');
-            
+
             if (elements.btnCloseModal) {
                 elements.btnCloseModal.style.display = 'block';
                 elements.btnCloseModal.onclick = () => {
@@ -1444,7 +1447,7 @@ function initQueueSystem() {
                 alert('Please load an audio track or enable the Built-in Synth Demo first!');
                 return;
             }
-            
+
             // Generate snapshot of settings and references
             const visuals = cloneExportSettings(state.visuals);
             [
@@ -1489,7 +1492,7 @@ function initQueueSystem() {
 
             renderQueue.push(item);
             updateQueueUI();
-            
+
             // Visual feedback flash
             if (btnViewQueue) {
                 btnViewQueue.style.transform = 'scale(1.08)';
@@ -1569,7 +1572,7 @@ function updateQueueUI() {
     }
 
     if (btnClearQueue) btnClearQueue.disabled = false;
-    
+
     const hasUnfinished = renderQueue.some(item => item.status === 'queued' || item.status === 'failed');
     if (btnStartQueueRender) btnStartQueueRender.disabled = !hasUnfinished;
 
@@ -1913,7 +1916,7 @@ async function runBatchQueueRender() {
     loadQueueItemIntoState(sessionBackup, false);
 
     if (spinner) spinner.classList.add('stopped');
-    
+
     if (isBatchCancelled) {
         elements.renderPercent.innerText = 'ESC';
         elements.renderProgressbar.style.width = '100%';
@@ -1921,7 +1924,7 @@ async function runBatchQueueRender() {
         elements.renderModalTitle.innerText = 'Batch Export Cancelled';
         elements.renderModalSub.innerText = 'The batch render was cancelled by the user.';
         elements.renderDetailsLog.innerText = 'Some videos may not have finished rendering.';
-        
+
         elements.btnCancelRender.innerText = 'Close';
         elements.btnCancelRender.onclick = () => {
             elements.renderModal.style.display = 'none';
@@ -1966,4 +1969,3 @@ async function runBatchQueueRender() {
         }
     }
 }
-

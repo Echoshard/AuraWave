@@ -12,6 +12,7 @@ AuraWave is a native desktop audio visualizer and video creator built with Pytho
 - **Volumetric Bloom**: Independent bloom brightness and custom color controls with HDR multi-pass glow.
 - **Ambient Synth Engine**: Web Audio synthesizer with three preset soundscapes, pre-rendering offline into raw PCM audio buffers.
 - **Hybrid Remuxing**: Silent WebM output from the browser is sent to the Flask server, where FFmpeg remuxes it with original or synthesized audio into a standard H.264/AAC MP4.
+- **Lyrics, Stems & Subtitles**: Paste lyrics, optionally prepare a vocal reference stem, generate timed karaoke subtitles, edit/fix line and word timing, preview lyrics on the canvas, and export ASS/SSA, SRT, VTT, LRC, and JSON subtitle files.
 - **Style / FX Post-Processing**: Real-time canvas effects layered on top of the visualizer — glitch, heat distortion, VHS, CRT, and more.
 - **Saved Templates System**: Save and load custom visualizer settings (colors, typography, and FX profiles) locally to reuse your design presets across different audio tracks.
 - **Batch Render Queue**: Snapshot your entire visualizer configuration (audio track, background image/video, foreground cutouts, text, and FX parameters) into an in-memory queue. Swap between queued projects in one click to make adjustments, and render them all sequentially in a single batch.
@@ -96,6 +97,18 @@ Shapes mode renders a single glowing geometric object at the center of the canva
 
 ## Controls Reference
 
+### Lyrics & Subtitles
+- **Lyrics input** - Paste plain lyrics or import a `.txt` file. Common section headers such as `[Verse 1]` and `Chorus:` are removed from timed subtitle output.
+- **Alignment provider** - `Auto` tries stable-whisper when the optional package is installed, then falls back to an editable proportional timing pass. `Editable Draft` always uses deterministic local timing for fast manual correction. Device selection supports `auto`, `cpu`, and `cuda`.
+- **Stem split first** - Uses Demucs when available, or an FFmpeg mono vocal reference fallback when Demucs is not installed.
+- **Require Production Tools** - Fails the job when Demucs or stable-whisper are unavailable instead of producing a fallback draft. Use this when final subtitle timing quality matters.
+- **Alignment audio** - AuraWave normalizes the selected source or vocal stem to mono 16 kHz PCM WAV before alignment for consistent local results.
+- **Karaoke detail / style** - Choose expressive, syllable-ish, or word-level ASS karaoke tags and a pretty or minimal subtitle style preset before generation.
+- **Waveform timing editor** - Edit line, word, and expressive hold/release timing on a DAW-style waveform with zoom, pan, playback speed, overview transport, visual handles, and split-at-playhead actions.
+- **Canvas overlay** - Renders active lyrics directly into the visualizer canvas, so exports include the same lyrics shown in preview.
+- **Subtitle files** - Each completed job writes `lyrics.ass`, `lyrics.ssa`, `lyrics.srt`, `lyrics.vtt`, `lyrics.lrc`, and `lyrics.json` under `exports/subtitles/<job_id>/`. Final MP4 exports can mux the current job's `lyrics.srt` as a soft subtitle track.
+- **Stem files** - When stem splitting is enabled, downloadable `vocals.wav` and optional `accompaniment.wav` files are exposed from `exports/subtitles/<job_id>/stems/`.
+
 ### Visual Options
 - **Bar Width** — Width of individual frequency bars (Retro Bars, Circular, Radial Burst)
 - **Bar Spread** — Gap between bars (Retro Bars and Giant Equalizer)
@@ -135,6 +148,15 @@ Shapes mode renders a single glowing geometric object at the center of the canva
 - Python 3.8+
 - FFmpeg (recommended to have installed and available on your PATH. `run.bat` will attempt to install it automatically via `winget` if it is not found, but for best results install it manually from [ffmpeg.org](https://ffmpeg.org/download.html) and add it to your PATH first).
 
+### Optional Subtitle Tools
+- Demucs enables higher-quality vocal reference stems for alignment. Without it, AuraWave uses an FFmpeg-generated mono vocal reference when stem splitting is requested.
+- `stable-ts` provides the `stable_whisper` Python module for forced lyrics alignment. Without it, AuraWave generates a deterministic editable draft and reports the fallback in the job warnings.
+- For production subtitle runs, install:
+
+```bash
+pip install -r requirements-subtitles.txt
+```
+
 ### Running the Application
 Double-click **`run.bat`**. It will:
 1. Install FFmpeg via winget if not already present
@@ -162,6 +184,11 @@ python app.py
 ```
 Open your browser to `http://localhost:5000`. Note that native 4K canvas piping is only supported in the Desktop App; browser mode will use client-side WebCodecs segment encoding.
 
+### Tests
+```bash
+python -m unittest discover -s tests -v
+```
+
 ---
 
 ## Key File Structure
@@ -172,3 +199,5 @@ Open your browser to `http://localhost:5000`. Note that native 4K canvas piping 
 - `static/js/visualizer.js`: Preview rendering, particle engine, FX post-processing, and bloom/glow pipeline.
 - `static/js/synth.js`: Web Audio synthesizers and chord progression loops.
 - `static/js/core.js`: Global state management and UI event routing.
+- `static/js/subtitles.js`: Lyrics/subtitle job UI, waveform timing editor, and canvas overlay renderer.
+- `aurawave/`: Subtitle timing, rendering, stem splitting, alignment adapters, and job orchestration.
