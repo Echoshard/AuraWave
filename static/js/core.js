@@ -138,7 +138,8 @@ const state = {
         cameraDrift: false,
         cameraDriftSpeed: 1.0,
         cameraDriftAmplitude: 60.0,
-        cameraDriftZoom: 1.10
+        cameraDriftZoom: 1.10,
+        cameraDriftWaveformFollow: false
     },
     text: {
         enabled: true,
@@ -427,6 +428,7 @@ document.addEventListener('DOMContentLoaded', () => {
     elements.cameraDriftAmplitudeVal = document.getElementById('camera-drift-amplitude-val');
     elements.fxCameraDriftZoom = document.getElementById('fx-camera-drift-zoom');
     elements.cameraDriftZoomVal = document.getElementById('camera-drift-zoom-val');
+    elements.fxCameraDriftWaveformFollow = document.getElementById('fx-camera-drift-waveform-follow');
     
     elements.bgZoom = document.getElementById('bg-zoom');
     elements.bgZoomVal = document.getElementById('bg-zoom-val');
@@ -1422,6 +1424,13 @@ document.addEventListener('DOMContentLoaded', () => {
             const val = parseFloat(e.target.value);
             state.fx.cameraDriftZoom = val;
             elements.cameraDriftZoomVal.innerText = `${val.toFixed(2)}x`;
+            triggerRedraw();
+        });
+    }
+    if (elements.fxCameraDriftWaveformFollow) {
+        elements.fxCameraDriftWaveformFollow.addEventListener('change', (e) => {
+            state.fx.cameraDriftWaveformFollow = e.target.checked;
+            saveSettingsToLocalStorage();
             triggerRedraw();
         });
     }
@@ -2652,6 +2661,9 @@ function syncDOMToState() {
     if (elements.fxCameraDriftZoom) {
         elements.fxCameraDriftZoom.value = state.fx.cameraDriftZoom;
         elements.cameraDriftZoomVal.innerText = `${state.fx.cameraDriftZoom.toFixed(2)}x`;
+    }
+    if (elements.fxCameraDriftWaveformFollow) {
+        elements.fxCameraDriftWaveformFollow.checked = state.fx.cameraDriftWaveformFollow || false;
     }
 
     if (elements.fxColorGrading) elements.fxColorGrading.value = state.fx.colorGrading;

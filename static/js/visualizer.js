@@ -896,6 +896,23 @@ function renderFrame() {
     // --- 2.5 Draw Glowing pulsing Beat Shape (Dynamic custom glow radius factor applied!) ---
     if (state.visuals.style === 'shapes') {
         ctx.save();
+        if (state.fx.cameraDrift && state.fx.cameraDriftWaveformFollow) {
+            const speedCoeff = state.fx.cameraDriftSpeed !== undefined ? state.fx.cameraDriftSpeed : 1.0;
+            const driftTime = (state.audio.currentTime || Date.now() * 0.001) * 0.45 * speedCoeff;
+            const amp = state.fx.cameraDriftAmplitude !== undefined ? state.fx.cameraDriftAmplitude : 60.0;
+            const zoomCushion = state.fx.cameraDriftZoom !== undefined ? state.fx.cameraDriftZoom : 1.10;
+
+            const driftShiftX = Math.sin(driftTime) * amp;
+            const driftShiftY = Math.cos(driftTime * 0.7) * (amp * 0.583);
+            const driftZoom = (zoomCushion + Math.sin(driftTime * 0.5) * 0.03);
+
+            const bgCenterX = width / 2 + state.visuals.bgShiftX;
+            const bgCenterY = height / 2 + state.visuals.bgShiftY;
+
+            ctx.translate(bgCenterX + driftShiftX, bgCenterY + driftShiftY);
+            ctx.scale(driftZoom, driftZoom);
+            ctx.translate(-bgCenterX, -bgCenterY);
+        }
         ctx.globalAlpha = state.visuals.waveOpacity !== undefined ? state.visuals.waveOpacity : 1.0;
         
         const baseRadius = state.visuals.shapeSize * 0.5;
@@ -1185,6 +1202,28 @@ function renderFrame() {
     // --- 4. Draw Audio Waveforms ---
     if (bufferLength > 0) {
         ctx.save();
+
+        let driftShiftX = 0;
+        let driftShiftY = 0;
+        let driftZoom = 1.0;
+        const bgCenterX = width / 2 + state.visuals.bgShiftX;
+        const bgCenterY = height / 2 + state.visuals.bgShiftY;
+
+        if (state.fx.cameraDrift && state.fx.cameraDriftWaveformFollow) {
+            const speedCoeff = state.fx.cameraDriftSpeed !== undefined ? state.fx.cameraDriftSpeed : 1.0;
+            const driftTime = (state.audio.currentTime || Date.now() * 0.001) * 0.45 * speedCoeff;
+            const amp = state.fx.cameraDriftAmplitude !== undefined ? state.fx.cameraDriftAmplitude : 60.0;
+            const zoomCushion = state.fx.cameraDriftZoom !== undefined ? state.fx.cameraDriftZoom : 1.10;
+
+            driftShiftX = Math.sin(driftTime) * amp;
+            driftShiftY = Math.cos(driftTime * 0.7) * (amp * 0.583);
+            driftZoom = (zoomCushion + Math.sin(driftTime * 0.5) * 0.03);
+
+            ctx.translate(bgCenterX + driftShiftX, bgCenterY + driftShiftY);
+            ctx.scale(driftZoom, driftZoom);
+            ctx.translate(-bgCenterX, -bgCenterY);
+        }
+
         ctx.globalAlpha = state.visuals.waveOpacity !== undefined ? state.visuals.waveOpacity : 1.0;
         let yBase = height / 2;
         if (state.visuals.position === 'top') yBase = height * 0.25;
@@ -1250,6 +1289,11 @@ function renderFrame() {
                 // Draw in absolute coordinates by resetting current transformation temporarily
                 ctx.save();
                 ctx.setTransform(1, 0, 0, 1, 0, 0);
+                if (state.fx.cameraDrift && state.fx.cameraDriftWaveformFollow) {
+                    ctx.translate(bgCenterX + driftShiftX, bgCenterY + driftShiftY);
+                    ctx.scale(driftZoom, driftZoom);
+                    ctx.translate(-bgCenterX, -bgCenterY);
+                }
                 
                 const baseBottom = height;
                 const baseTop = 0;
@@ -1434,6 +1478,11 @@ function renderFrame() {
                 // Draw in absolute coordinates by resetting current transformation temporarily
                 ctx.save();
                 ctx.setTransform(1, 0, 0, 1, 0, 0);
+                if (state.fx.cameraDrift && state.fx.cameraDriftWaveformFollow) {
+                    ctx.translate(bgCenterX + driftShiftX, bgCenterY + driftShiftY);
+                    ctx.scale(driftZoom, driftZoom);
+                    ctx.translate(-bgCenterX, -bgCenterY);
+                }
 
                 const baseBottom = height + state.visuals.waveShiftY;
                 const baseTop = 0 + state.visuals.waveShiftY;
