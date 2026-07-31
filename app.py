@@ -13,6 +13,7 @@ from flask import Flask, render_template, request, jsonify, send_from_directory
 from werkzeug.utils import secure_filename, safe_join
 from PIL import Image, ImageDraw, ImageFont
 
+from aurawave.ffmpeg import configure_bundled_ffmpeg_path
 from aurawave.subtitle_jobs import adjust_subtitle_job, edit_subtitle_job, run_subtitle_job
 
 # Configure logging
@@ -69,6 +70,7 @@ def ensure_local_python_scripts_on_path():
 
 
 ensure_local_python_scripts_on_path()
+configure_bundled_ffmpeg_path(BASE_DIR)
 app.config['MAX_CONTENT_LENGTH'] = 600 * 1024 * 1024  # 600 MB — supports ~20 min at 4 Mbps
 
 def allowed_file(filename, allowed_set):

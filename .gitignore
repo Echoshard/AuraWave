@@ -10,6 +10,9 @@ venv/
 ENV/
 env/
 
+# AuraWave-managed tools (downloaded by run.bat)
+.tools/
+
 # Project-specific uploads and video outputs
 uploads/*
 !uploads/.gitkeep

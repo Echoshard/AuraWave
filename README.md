@@ -146,7 +146,7 @@ Shapes mode renders a single glowing geometric object at the center of the canva
 
 ### Prerequisites
 - Python 3.8+
-- FFmpeg (recommended to have installed and available on your PATH. `run.bat` will attempt to install it automatically via `winget` if it is not found, but for best results install it manually from [ffmpeg.org](https://ffmpeg.org/download.html) and add it to your PATH first).
+- An internet connection on the first launch so AuraWave can download its private FFmpeg build.
 
 ### Optional Subtitle Tools
 - Demucs enables higher-quality vocal reference stems for alignment. Without it, AuraWave uses an FFmpeg-generated mono vocal reference when stem splitting is requested.
@@ -159,7 +159,7 @@ pip install -r requirements-subtitles.txt
 
 ### Running the Application
 Double-click **`run.bat`**. It will:
-1. Install FFmpeg via winget if not already present
+1. Check the current Windows FFmpeg release, download it into `.tools/ffmpeg` when missing or outdated, verify its published SHA-256 checksum, and use it instead of any system FFmpeg
 2. Create an isolated Python virtual environment (`.env`) on first run
 3. Install all Python dependencies (including `pywebview` and `Flask`) into that environment
 4. Launch the AuraWave native desktop application window via `desktop.py`
